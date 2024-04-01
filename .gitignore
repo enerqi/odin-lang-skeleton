@@ -1,0 +1,5 @@
+.env*
+
+# Our project outputs artifacts to target/**. A build dir is another common custom directory for artifacts.
+build
+target

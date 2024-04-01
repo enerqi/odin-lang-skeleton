@@ -1,0 +1,865 @@
+{
+    // Similar to the Odin.sublime-build but trys to use the target directory to store output artifacts
+    // $folder is the top level folder in the side bar which will work without projects and without the assumption
+    // that the project file is in the same directory as its contents
+    // $file_base_name is the file name, exluding the extension, of the file in the active view.
+    // ${file_path/^.*\\\\//} is `sed` like substitution to get the basename of the current file's folder without the
+    // full path to the directory being included
+    // We assume a justfile in the top level folder / project root with a `mktarget_dirs` task (recipe).
+    //
+    // Separate profile sub-folders can exist dev/debug vs release etc. can be created, though odin generally compiles
+    // fast enough, caveat llvm being slow, such that full rebuilds each time for small profile variations are not that
+    // painful.
+    //
+    // Ensuring the target directory exists is awkward - shell_cmd is ugly and os specific with mkdir failing on windows
+    // if it already exists. Deferring to a task in a justfile works fine but assumes the existence of just and a just
+    // file, in which case we could also assume some cross platform mkdir script exists. These are the sort of reasons
+    // rustc has the all in one cargo utility. Just recipes conveniently (?) don't return non-zero when a step fails,
+    // though it will not run the next step within a task on non-zero unless the task is prefixed with "-":
+    // https://just.systems/man/en/chapter_30.html?highlight=exit%20code#ignoring-errors
+    "selector": "source.odin",
+    "file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
+    "shell_cmd": "odin check \"$file_path\" -no-entry-point",
+    "variants": [
+        //
+        // current file
+        //
+
+        // syntax check
+        {
+            "name": "current file - syntax check",
+            "shell_cmd": "odin check \"$file\" -file -no-entry-point"
+        },
+        {
+            "name": "current file - strict vet check",
+            "shell_cmd": "odin check \"$file\" -file -vet -strict-style -no-entry-point"
+        },
+
+        // run
+        {
+            "name": "current file - run (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/debug/\"$file_base_name.exe\" -o:minimal -debug"
+        },
+        {
+            "name": "current file - run (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -o:size"
+        },
+        {
+            "name": "current file - run (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -o:size -no-bounds-check"
+        },
+        {
+            "name": "current file - run (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - run (o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -o:size -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current file - run (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -o:speed"
+        },
+        {
+            "name": "current file - run (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current file - run (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - run (o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -o:speed -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current file - run fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -o:size -debug"
+        },
+        {
+            "name": "current file - run fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - run fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - run fastdebug(o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -o:size -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+        {
+            "name": "current file - run fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -o:speed -debug"
+        },
+        {
+            "name": "current file - run fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - run fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -o:speed -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - run fastdebug(o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -o:speed -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+
+        // test
+        {
+            "name": "current file - test (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/debug/\"test_$file_base_name.exe\" -o:minimal -debug"
+        },
+        {
+            "name": "current file - test (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/release/\"test_$file_base_name.exe\" -o:size"
+        },
+        {
+            "name": "current file - test (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/release/\"test_$file_base_name.exe\" -o:size -no-bounds-check"
+        },
+        {
+            "name": "current file - test (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/release/\"test_$file_base_name.exe\" -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - test (o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/release/\"test_$file_base_name.exe\" -o:size -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current file - test (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/release/\"test_$file_base_name.exe\" -o:speed"
+        },
+        {
+            "name": "current file - test (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/release/\"test_$file_base_name.exe\" -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current file - test (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/release/\"test_$file_base_name.exe\" -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - test (o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/release/\"test_$file_base_name.exe\" -o:speed -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current file - test fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/fastdebug/\"test_$file_base_name.exe\" -o:size -debug"
+        },
+        {
+            "name": "current file - test fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/fastdebug/\"test_$file_base_name.exe\" -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - test fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/fastdebug/\"test_$file_base_name.exe\" -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - test fastdebug(o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/fastdebug/\"test_$file_base_name.exe\" -o:size -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+        {
+            "name": "current file - test fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/fastdebug/\"test_$file_base_name.exe\" -o:speed -debug"
+        },
+        {
+            "name": "current file - test fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/fastdebug/\"test_$file_base_name.exe\" -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - test fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/fastdebug/\"test_$file_base_name.exe\" -o:speed -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - test fastdebug(o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file\" -file -out:$folder/target/fastdebug/\"test_$file_base_name.exe\" -o:speed -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+
+        // build exe
+        {
+            "name": "current file - build exe (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/debug/\"$file_base_name.exe\" -build-mode:exe -o:minimal -debug"
+        },
+        {
+            "name": "current file - build exe (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -build-mode:exe -o:size"
+        },
+        {
+            "name": "current file - build exe (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -build-mode:exe -o:size -no-bounds-check"
+        },
+        {
+            "name": "current file - build exe (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -build-mode:exe -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - build exe (o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -build-mode:exe -o:size -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current file - build exe (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -build-mode:exe -o:speed"
+        },
+        {
+            "name": "current file - build exe (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -build-mode:exe -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current file - build exe (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -build-mode:exe -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - build exe (o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.exe\" -build-mode:exe -o:speed -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current file - build exe fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -build-mode:exe -o:size -debug"
+        },
+        {
+            "name": "current file - build exe fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -build-mode:exe -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - build exe fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -build-mode:exe -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - build exe fastdebug(o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -build-mode:exe -o:size -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+        {
+            "name": "current file - build exe fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -build-mode:exe -o:speed -debug"
+        },
+        {
+            "name": "current file - build exe fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -build-mode:exe -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - build exe fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -build-mode:exe -o:speed -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - build exe fastdebug(o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.exe\" -build-mode:exe -o:speed -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+
+        // build dll
+        {
+            "name": "current file - build dll (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/debug/\"$file_base_name.dll\" -build-mode:dll -o:minimal -debug"
+        },
+        {
+            "name": "current file - build dll (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/release/\"$file_base_name.dll\" -build-mode:dll -o:size"
+        },
+        {
+            "name": "current file - build dll (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/release/\"$file_base_name.dll\" -build-mode:dll -o:size -no-bounds-check"
+        },
+        {
+            "name": "current file - build dll (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/release/\"$file_base_name.dll\" -build-mode:dll -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - build dll (o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/release/\"$file_base_name.dll\" -build-mode:dll -o:size -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current file - build dll (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/release/\"$file_base_name.dll\" -build-mode:dll -o:speed"
+        },
+        {
+            "name": "current file - build dll (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/release/\"$file_base_name.dll\" -build-mode:dll -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current file - build dll (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/release/\"$file_base_name.dll\" -build-mode:dll -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - build dll (o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/release/\"$file_base_name.dll\" -build-mode:dll -o:speed -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current file - build dll fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/fastdebug/\"$file_base_name.dll\" -build-mode:dll -o:size -debug"
+        },
+        {
+            "name": "current file - build dll fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/fastdebug/\"$file_base_name.dll\" -build-mode:dll -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - build dll fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/fastdebug/\"$file_base_name.dll\" -build-mode:dll -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - build dll fastdebug(o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/fastdebug/\"$file_base_name.dll\" -build-mode:dll -o:size -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+        {
+            "name": "current file - build dll fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/fastdebug/\"$file_base_name.dll\" -build-mode:dll -o:speed -debug"
+        },
+        {
+            "name": "current file - build dll fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/fastdebug/\"$file_base_name.dll\" -build-mode:dll -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - build dll fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/fastdebug/\"$file_base_name.dll\" -build-mode:dll -o:speed -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - build dll fastdebug(o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file  -out:$folder/target/fastdebug/\"$file_base_name.dll\" -build-mode:dll -o:speed -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+
+        // build asm
+        {
+            "name": "current file - build asm (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/debug/\"$file_base_name.S\" -build-mode:asm -o:minimal -debug"
+        },
+        {
+            "name": "current file - build asm (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.S\" -build-mode:asm -o:size"
+        },
+        {
+            "name": "current file - build asm (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.S\" -build-mode:asm -o:size -no-bounds-check"
+        },
+        {
+            "name": "current file - build asm (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.S\" -build-mode:asm -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - build asm (o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.S\" -build-mode:asm -o:size -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current file - build asm (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.S\" -build-mode:asm -o:speed"
+        },
+        {
+            "name": "current file - build asm (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.S\" -build-mode:asm -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current file - build asm (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.S\" -build-mode:asm -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - build asm (o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.S\" -build-mode:asm -o:speed -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current file - build asm fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.S\" -build-mode:asm -o:size -debug"
+        },
+        {
+            "name": "current file - build asm fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.S\" -build-mode:asm -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - build asm fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.S\" -build-mode:asm -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - build asm fastdebug(o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.S\" -build-mode:asm -o:size -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+        {
+            "name": "current file - build asm fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.S\" -build-mode:asm -o:speed -debug"
+        },
+        {
+            "name": "current file - build asm fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.S\" -build-mode:asm -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - build asm fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.S\" -build-mode:asm -o:speed -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - build asm fastdebug(o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.S\" -build-mode:asm -o:speed -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+
+        // build llvm-ir
+        {
+            "name": "current file - build llvm-ir (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/debug/\"$file_base_name.ll\" -build-mode:llvm-ir -o:minimal -debug"
+        },
+        {
+            "name": "current file - build llvm-ir (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.ll\" -build-mode:llvm-ir -o:size"
+        },
+        {
+            "name": "current file - build llvm-ir (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.ll\" -build-mode:llvm-ir -o:size -no-bounds-check"
+        },
+        {
+            "name": "current file - build llvm-ir (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.ll\" -build-mode:llvm-ir -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - build llvm-ir (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.ll\" -build-mode:llvm-ir -o:speed"
+        },
+        {
+            "name": "current file - build llvm-ir (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.ll\" -build-mode:llvm-ir -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current file - build llvm-ir (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/release/\"$file_base_name.ll\" -build-mode:llvm-ir -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current file - build llvm-ir fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.ll\" -build-mode:llvm-ir -o:size -debug"
+        },
+        {
+            "name": "current file - build llvm-ir fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.ll\" -build-mode:llvm-ir -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - build llvm-ir fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.ll\" -build-mode:llvm-ir -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current file - build llvm-ir fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.ll\" -build-mode:llvm-ir -o:speed -debug"
+        },
+        {
+            "name": "current file - build llvm-ir fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.ll\" -build-mode:llvm-ir -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current file - build llvm-ir fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file\" -file -out:$folder/target/fastdebug/\"$file_base_name.ll\" -build-mode:llvm-ir -o:speed -no-bounds-check -disable-assert -debug"
+        },
+
+
+        //
+        // current package
+        //
+
+        // syntax check
+        {
+            "name": "current package - syntax check",
+            "shell_cmd": "odin check \"$file_path\" -no-entry-point"
+        },
+        {
+            "name": "current package - strict vet check",
+            "shell_cmd": "odin check \"$file_path\" -vet -strict-style -no-entry-point"
+        },
+
+        // run
+        {
+            "name": "current package - run (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/debug/\"${file_path/^.*\\\\//}.exe\"  -o:minimal -debug"
+        },
+        {
+            "name": "current package - run (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.exe\"  -o:size"
+        },
+        {
+            "name": "current package - run (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.exe\"  -o:size -no-bounds-check"
+        },
+        {
+            "name": "current package - run (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.exe\"  -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - run (o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.exe\"  -o:size -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current package - run (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.exe\"  -o:speed"
+        },
+        {
+            "name": "current package - run (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.exe\"  -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current package - run (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.exe\"  -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - run (o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.exe\"  -o:speed -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current package - run fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.exe\"  -o:size -debug"
+        },
+        {
+            "name": "current package - run fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.exe\"  -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - run fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.exe\"  -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - run fastdebug(o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.exe\"  -o:size -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+        {
+            "name": "current package - run fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.exe\"  -o:speed -debug"
+        },
+        {
+            "name": "current package - run fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.exe\"  -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - run fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.exe\"  -o:speed -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - run fastdebug(o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin run \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.exe\"  -o:speed -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+
+        // test
+        {
+            "name": "current package - test (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/debug/\"test_${file_path/^.*\\\\//}.exe\" -o:minimal -debug"
+        },
+        {
+            "name": "current package - test (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/release/\"test_${file_path/^.*\\\\//}.exe\" -o:size"
+        },
+        {
+            "name": "current package - test (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/release/\"test_${file_path/^.*\\\\//}.exe\" -o:size -no-bounds-check"
+        },
+        {
+            "name": "current package - test (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/release/\"test_${file_path/^.*\\\\//}.exe\" -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - test (o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/release/\"test_${file_path/^.*\\\\//}.exe\" -o:size -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current package - test (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/release/\"test_${file_path/^.*\\\\//}.exe\" -o:speed"
+        },
+        {
+            "name": "current package - test (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/release/\"test_${file_path/^.*\\\\//}.exe\" -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current package - test (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/release/\"test_${file_path/^.*\\\\//}.exe\" -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - test (o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/release/\"test_${file_path/^.*\\\\//}.exe\" -o:speed -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current package - test (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/debug/\"test_${file_path/^.*\\\\//}.exe\" -o:minimal -debug"
+        },
+        {
+            "name": "current package - test fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/fastdebug/\"test_${file_path/^.*\\\\//}.exe\" -o:size -debug"
+        },
+        {
+            "name": "current package - test fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/fastdebug/\"test_${file_path/^.*\\\\//}.exe\" -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - test fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/fastdebug/\"test_${file_path/^.*\\\\//}.exe\" -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - test fastdebug(o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/fastdebug/\"test_${file_path/^.*\\\\//}.exe\" -o:size -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+        {
+            "name": "current package - test fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/fastdebug/\"test_${file_path/^.*\\\\//}.exe\" -o:speed -debug"
+        },
+        {
+            "name": "current package - test fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/fastdebug/\"test_${file_path/^.*\\\\//}.exe\" -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - test fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/fastdebug/\"test_${file_path/^.*\\\\//}.exe\" -o:speed -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - test fastdebug(o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin test \"$file_path\" -out:$folder/target/fastdebug/\"test_${file_path/^.*\\\\//}.exe\" -o:speed -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+
+        // build exe
+        {
+            "name": "current package - build exe (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/debug/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:minimal -debug"
+        },
+        {
+            "name": "current package - build exe (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/release/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:size"
+        },
+        {
+            "name": "current package - build exe (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/release/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:size -no-bounds-check"
+        },
+        {
+            "name": "current package - build exe (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/release/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - build exe (o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/release/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:size -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current package - build exe (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/release/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:speed"
+        },
+        {
+            "name": "current package - build exe (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/release/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current package - build exe (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/release/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - build exe (o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/release/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:speed -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current package - build exe fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/fastdebug/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:size -debug"
+        },
+        {
+            "name": "current package - build exe fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/fastdebug/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - build exe fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/fastdebug/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - build exe fastdebug(o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/fastdebug/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:size -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+        {
+            "name": "current package - build exe fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/fastdebug/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:speed -debug"
+        },
+        {
+            "name": "current package - build exe fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/fastdebug/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - build exe fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/fastdebug/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:speed -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - build exe fastdebug(o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:\"$folder\"/target/fastdebug/\"${file_path/^.*\\\\//}.exe\" -build-mode:exe -o:speed -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+
+        // build dll
+        {
+            "name": "current package - build dll (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/debug/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:minimal -debug"
+        },
+        {
+            "name": "current package - build dll (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:size"
+        },
+        {
+            "name": "current package - build dll (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:size -no-bounds-check"
+        },
+        {
+            "name": "current package - build dll (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - build dll (o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:size -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current package - build dll (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:speed"
+        },
+        {
+            "name": "current package - build dll (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current package - build dll (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - build dll (o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:speed -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current package - build dll fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:size -debug"
+        },
+        {
+            "name": "current package - build dll fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - build dll fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - build dll fastdebug(o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:size -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+        {
+            "name": "current package - build dll fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:speed -debug"
+        },
+        {
+            "name": "current package - build dll fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - build dll fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:speed -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - build dll fastdebug(o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.dll\" -build-mode:dll -o:speed -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+
+        // build asm
+        {
+            "name": "current package - build asm (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/debug/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:minimal -debug"
+        },
+        {
+            "name": "current package - build asm (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:size"
+        },
+        {
+            "name": "current package - build asm (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:size -no-bounds-check"
+        },
+        {
+            "name": "current package - build asm (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - build asm (o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:size -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current package - build asm (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:speed"
+        },
+        {
+            "name": "current package - build asm (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current package - build asm (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - build asm (o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:speed -no-bounds-check -disable-assert -microarch:native"
+        },
+        {
+            "name": "current package - build asm fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:size -debug"
+        },
+        {
+            "name": "current package - build asm fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - build asm fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - build asm fastdebug(o:size, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:size -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+        {
+            "name": "current package - build asm fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:speed -debug"
+        },
+        {
+            "name": "current package - build asm fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - build asm fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:speed -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - build asm fastdebug(o:speed, no-bounds-check, disable-assert, microarch:native)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.S\" -build-mode:asm -o:speed -no-bounds-check -disable-assert -microarch:native -debug"
+        },
+
+        // build llvm-ir
+        {
+            "name": "current package - build llvm-ir (debug, o:minimal)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/debug/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:minimal -debug"
+        },
+        {
+            "name": "current package - build llvm-ir (o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:size"
+        },
+        {
+            "name": "current package - build llvm-ir (o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:size -no-bounds-check"
+        },
+        {
+            "name": "current package - build llvm-ir (o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:size -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - build llvm-ir (o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:speed"
+        },
+        {
+            "name": "current package - build llvm-ir (o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:speed -no-bounds-check"
+        },
+        {
+            "name": "current package - build llvm-ir (o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/release/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:speed -no-bounds-check -disable-assert"
+        },
+        {
+            "name": "current package - build llvm-ir fastdebug(o:size)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:size -debug"
+        },
+        {
+            "name": "current package - build llvm-ir fastdebug(o:size, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:size -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - build llvm-ir fastdebug(o:size, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:size -no-bounds-check -disable-assert -debug"
+        },
+        {
+            "name": "current package - build llvm-ir fastdebug(o:speed)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:speed -debug"
+        },
+        {
+            "name": "current package - build llvm-ir fastdebug(o:speed, no-bounds-check)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:speed -no-bounds-check -debug"
+        },
+        {
+            "name": "current package - build llvm-ir fastdebug(o:speed, no-bounds-check, disable-assert)",
+            "shell_cmd": "just \"$folder/mktarget_dirs\" && odin build \"$file_path\" -out:$folder/target/fastdebug/\"${file_path/^.*\\\\//}.ll\" -build-mode:llvm-ir -o:speed -no-bounds-check -disable-assert -debug"
+        },
+    ]
+}

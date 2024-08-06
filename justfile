@@ -1,3 +1,4 @@
+# set shell := ["nu", "-c"]
 
 # odinfmt every odin file under this directory or subdirectories
 format:
@@ -29,6 +30,9 @@ build_debug *args: mktarget_dirs
 run_debug: build_debug
     target/debug/main.exe
 
+# alias for run_debug
+run: run_debug
+
 build_fastdebug *args: mktarget_dirs
     odin build . -debug -o:speed -microarch:native -show-timings -out:target/fastdebug/main.exe
 
@@ -49,7 +53,7 @@ test: mktarget_dirs
 test1 name: mktarget_dirs
     odin test . -debug -file -microarch:native -lld -show-timings -test-name:{{name}} -out:target/debug/test-main.exe
 
-# simple delete of all debug databases and executables in the current directory and our executable
+# simple delete of all debug databases and executables in the target directory
 clean:
     rm -rf target
     just mktarget_dirs

@@ -25,7 +25,8 @@ sub-directories. [Just](https://just.systems/) is a CLI task runner that you *ne
 
 ## [Sublime Text](https://www.sublimetext.com/) editor specific files
 
-The `OdinJustTarget.sublime-build` file is an example [sublime build file](https://www.sublimetext.com/docs/build_systems.html). Delete it if no developer is using sublime text. Same for the very basic `.sublime-project` file.
+The `OdinJustTarget.sublime-build` file is an example [sublime build file](https://www.sublimetext.com/docs/build_systems.html). Delete it if no developer is using sublime text.
+Same for the very basic `.sublime-project` file, which you can rename to match your project if it's useful.
 
 If you install this you get a lot of build options for *compiling* either the individual file or the current package of
 the file open in the editor. The artifacts are output to the the `target` directory.

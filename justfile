@@ -1,4 +1,4 @@
-# set shell := ["nu", "-c"]
+set windows-shell := ["nu", "-c"]
 
 # odinfmt every odin file under this directory or subdirectories
 format:
@@ -24,34 +24,24 @@ lint *args:
     -mkdir target/release
 
 
-build_debug *args: mktarget_dirs
-    odin build . -debug -microarch:native -show-timings -out:target/debug/main.exe
+run_debug *args: mktarget_dirs
+	odin run . -debug -microarch:native -show-timings -out:target/debug/main.exe {{args}}
 
-run_debug: build_debug
-    target/debug/main.exe
+alias run := run_debug
 
-# alias for run_debug
-run: run_debug
+run_fastdebug *args: mktarget_dirs
+    odin run . -debug -o:speed -microarch:native -show-timings -out:target/fastdebug/main.exe {{args}}
 
-build_fastdebug *args: mktarget_dirs
-    odin build . -debug -o:speed -microarch:native -show-timings -out:target/fastdebug/main.exe
-
-run_fastdebug: build_fastdebug
-    target/fastdebug/main.exe
-
-build_release *args: mktarget_dirs
-    odin build . -o:speed -microarch:native -show-timings -out:target/release/main.exe
-
-run_release: build_release
-    target/release/main.exe
+run_release *args: mktarget_dirs
+    odin run . -o:speed -microarch:native -show-timings -out:target/release/main.exe {{args}}
 
 # run all tests
-test: mktarget_dirs
-    odin test . -debug -file -microarch:native -lld -show-timings -out:target/debug/test-main.exe
+test *args: mktarget_dirs
+    odin test . -debug -file -microarch:native -show-timings -out:target/debug/test-main.exe {{args}}
 
 # run one named test
-test1 name: mktarget_dirs
-    odin test . -debug -file -microarch:native -lld -show-timings -test-name:{{name}} -out:target/debug/test-main.exe
+test1 name *args: mktarget_dirs
+    odin test . -debug -file -microarch:native -show-timings -test-name:{{name}} -out:target/debug/test-main.exe {{args}}
 
 # simple delete of all debug databases and executables in the target directory
 clean:

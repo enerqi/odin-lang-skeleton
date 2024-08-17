@@ -14,12 +14,13 @@ sub-directories. [Just](https://just.systems/) is a CLI task runner that you *ne
   is in your `PATH`. It will format every `.odin` file under the project tree. The `odinfmt` program can be built from
   its source within the [Odin language server](https://github.com/DanielGavin/ols) code (see `odinfmt.bat` or
   `odinfmt.sh`), which is recommended when editing Odin code
-- the `build_debug` task is very basic (change the executable name as needed), same for the other `build_fastdebug`,
-  `build_release` tasks plus matching `run_debug`, `run_fastdebug` and `run_release` tasks. Note `odin run ...` is
-  equivalent to build then exec
-- the `clean` task clears the `target` directory and assumes your shell can do `rm -rf` (if not adjust it!). You may
-  need to [`set shell := ...` at the top of the just file](https://just.systems/man/en/chapter_26.html?highlight=set%20shell#settings)
-- `test` and `test1` tasks call `odin test ...`
+- the `run_debug` task and alias `run` is very basic (change the executable name as needed), same for the other
+  `run_fastdebug` and `run_release` tasks. All of these accept optional extra variadic arguments. Add `--` before
+  passing program arguments.
+- the `clean` task clears the `target` directory and assumes your shell can do `rm -rf` (if not adjust it!)
+	- The opionionated default shell on windows is `nushell` (`nu -c`) - this supports `rm -rf`.
+	- See [configuring the just shell](https://just.systems/man/en/chapter_63.html?highlight=set%20shell#configuring-the-shell)
+- `test` and `test1` tasks call `odin test ...`, also with optional extra variadic arguments
 
 
 ## [Sublime Text](https://www.sublimetext.com/) editor specific files

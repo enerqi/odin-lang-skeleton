@@ -43,8 +43,8 @@ Same for the very basic `.sublime-project` file.
 
 Rename the `.sublime-project` file to match your project if keeping.
 
-If you install the sublime- build file you get a lot of build options for *compiling* either the individual file or the
-current package of the file open in the editor. The artifacts are output to the the `target` directory.
+If you install the `.sublime-build` file you get a lot of build options for *compiling* either the individual file or
+the current package of the file open in the editor. The artifacts are output to the the `target` directory.
 
 The build options also include *linting* and *testing*.
 

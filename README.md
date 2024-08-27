@@ -6,8 +6,8 @@ The build artifacts are output under the `target` directory (similar to [Rust](h
 built using `cargo`).
 
 A `justfile` is part of this opinionated setup and you may need to edit the tasks as new packages are added in
-sub-directories. [Just](https://just.systems/) is a CLI task runner that you *need to install*. Any task can be run
-with `just TASK` as follows:
+sub-directories. [Just >=1.32](https://just.systems/) is a CLI task runner that you *need to install*. Any task can be
+run with `just TASK` as follows:
 
 * `just run` or `just run_debug`
 * `just run_release`

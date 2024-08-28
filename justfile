@@ -4,7 +4,6 @@ set unstable  # [script("python")] feature - https://github.com/casey/just/issue
 # odinfmt every odin file under this directory or subdirectories
 [script("python")]
 format:
-    #! python
     import os, subprocess
     for (root, _, files) in os.walk("."):
         for filename in files:

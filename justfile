@@ -1,5 +1,9 @@
 set windows-shell := ["nu", "-c"]
+set shell := ["bash", "-c"]
 set unstable  # [script("python")] feature - https://github.com/casey/just/issues/1479
+
+main_name := "main.exe"
+test_main_name := "test-main.exe"
 
 # odinfmt every odin file under this directory or subdirectories
 [script("python")]
@@ -18,31 +22,39 @@ lint *args:
 
 
 # ensure the build artifacts top level directory exists
+[unix]
+@mktarget_dirs:
+    -mkdir -p target
+    -mkdir -p target/debug
+    -mkdir -p target/fastdebug
+    -mkdir -p target/release
+
+# ensure the build artifacts top level directory exists
+[windows]
 @mktarget_dirs:
     -mkdir target
     -mkdir target/debug
     -mkdir target/fastdebug
     -mkdir target/release
 
-
 run_debug *args: mktarget_dirs
-	odin run . -debug -microarch:native -show-timings -out:target/debug/main.exe {{args}}
+	odin run . -debug -microarch:native -show-timings -out:target/debug/{{main_name}} {{args}}
 
 alias run := run_debug
 
 run_fastdebug *args: mktarget_dirs
-    odin run . -debug -o:speed -microarch:native -show-timings -out:target/fastdebug/main.exe {{args}}
+    odin run . -debug -o:speed -microarch:native -show-timings -out:target/fastdebug/{{main_name}} {{args}}
 
 run_release *args: mktarget_dirs
-    odin run . -o:speed -microarch:native -show-timings -out:target/release/main.exe {{args}}
+    odin run . -o:speed -microarch:native -show-timings -out:target/release/{{main_name}} {{args}}
 
 # run all tests
 test *args: mktarget_dirs
-    odin test . -debug -file -microarch:native -show-timings -out:target/debug/test-main.exe {{args}}
+    odin test . -debug -file -microarch:native -show-timings -out:target/debug/{{test_main_name}} {{args}}
 
 # run one named test
 test1 name *args: mktarget_dirs
-    odin test . -debug -file -microarch:native -show-timings -test-name:{{name}} -out:target/debug/test-main.exe {{args}}
+    odin test . -debug -file -microarch:native -show-timings -test-name:{{name}} -out:target/debug/{{test_main_name}} {{args}}
 
 # simple delete of all debug databases and executables in the target directory
 clean:

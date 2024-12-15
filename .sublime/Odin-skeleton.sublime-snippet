@@ -59,11 +59,11 @@ ________________________________________________________________________________
 		* https://github.com/jakubtomsu/odin-mimalloc
 	- Build with `-define:BACKTRACE_ENABLE=true` and provide a back import path to improve backtraces
 		* https://github.com/laytan/back
-	- Build with `-define:TIME_PROGRAM_DURATION_ENABLE=false` to turn off the default program duration logging
+	- Build with `-define:TIME_PROGRAM_DURATION_ENABLE=true` to turn on the program duration logging
 	- Build with `-define:TRACKING_ALLOCATOR_ENABLE=false` to turn off the memory tracking and reporting
 ___________________________________________________________________________________________________________________
 */
-TIME_PROGRAM_DURATION_ENABLE :: #config(TIME_PROGRAM_DURATION_ENABLE, true)
+TIME_PROGRAM_DURATION_ENABLE :: #config(TIME_PROGRAM_DURATION_ENABLE, false)
 MIMALLOC_ENABLE :: #config(MIMALLOC_ENABLE, false)
 SPALL_ENABLE :: #config(SPALL_ENABLE, false)
 BACKTRACE_ENABLE :: #config(BACKTRACE_ENABLE, false)

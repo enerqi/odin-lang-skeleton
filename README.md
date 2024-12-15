@@ -39,12 +39,14 @@ The tasks are easy to understand:
 ## [Sublime Text](https://www.sublimetext.com/) editor specific files
 
 The `OdinJustTarget.sublime-build` file is an example [sublime build file](https://www.sublimetext.com/docs/build_systems.html). Delete it if no developer is using sublime text.
+The `Odin.sublime-build` file is similar but doesn't assume you have `just` installed.
 Same for the very basic `.sublime-project` file.
 
 Rename the `.sublime-project` file to match your project if keeping.
 
-If you install the `.sublime-build` file you get a lot of build options for *compiling* either the individual file or
-the current package of the file open in the editor. The artifacts are output to the the `target` directory.
+If you install the `.sublime-build` file(s) you get a lot of build options for *compiling* either the individual file
+or the current package of the file open in the editor. The artifacts are output to the the `target` directory (or
+current directory if not using `just`).
 
 The build options also include *linting* and *testing*.
 
@@ -53,6 +55,9 @@ tasks or sublime build files. More flexibility is needed if you need things like
 parameters or multi stage conditional build steps. Rare custom steps are easy enough to run from the cli with extra
 task arguments, but frequently ran things maybe more conveniently executed through a sublime build file and so require
 some project specific customisation.
+
+The sublime `.sublime-snippet` example triggers creation of this "main" skeleton, perhaps useful when want a quick
+script file without necessarily using the `justfile` for build management. Copy to your sublime `Packages/User` folder.
 
 
 ## Language Server Configuration

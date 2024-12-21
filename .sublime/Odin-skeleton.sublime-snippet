@@ -1,6 +1,6 @@
 <snippet>
 	<content><![CDATA[
-package main
+package ${1:main}
 
 import "core:fmt"
 import "core:log"
@@ -9,8 +9,13 @@ import "core:sync"
 import "core:time"
 
 
-main :: proc() {
-	/* Operational Setup - often alters `context` so integrated into `main` */
+main_program :: proc() {
+	${2:fmt.println("Hello")}
+}
+
+
+main :: proc() { 	// Operational setup before calling `main_program`
+
 	// (1) program duration tracking
 	when TIME_PROGRAM_DURATION_ENABLE {
 		start_time := time.now()
@@ -44,8 +49,7 @@ main :: proc() {
 		defer log_program_duration(start_time)
 	}
 
-	/* Main Program */
-	fmt.println("hello world")
+	main_program()
 }
 
 
@@ -63,16 +67,16 @@ ________________________________________________________________________________
 	- Build with `-define:TRACKING_ALLOCATOR_ENABLE=false` to turn off the memory tracking and reporting
 ___________________________________________________________________________________________________________________
 */
-TIME_PROGRAM_DURATION_ENABLE :: #config(TIME_PROGRAM_DURATION_ENABLE, false)
-MIMALLOC_ENABLE :: #config(MIMALLOC_ENABLE, false)
-SPALL_ENABLE :: #config(SPALL_ENABLE, false)
-BACKTRACE_ENABLE :: #config(BACKTRACE_ENABLE, false)
-TRACKING_ALLOCATOR_ENABLE :: #config(TRACKING_ALLOCATOR_ENABLE, true)
+TIME_PROGRAM_DURATION_ENABLE :: #config(TIME_PROGRAM_DURATION_ENABLE, ${3:false})
+MIMALLOC_ENABLE :: #config(MIMALLOC_ENABLE, ${4:false})
+SPALL_ENABLE :: #config(SPALL_ENABLE, ${5:false})
+BACKTRACE_ENABLE :: #config(BACKTRACE_ENABLE, ${6:false})
+TRACKING_ALLOCATOR_ENABLE :: #config(TRACKING_ALLOCATOR_ENABLE, ${7:true})
 
 import "core:debug/trace"
 import spall "core:prof/spall"
-// import mi "../odin-mimalloc/mimalloc"
-// import back "../back"
+$8// import mi "../odin-mimalloc/mimalloc"
+$9// import back "../back"
 
 
 // Profiling global / thread local data

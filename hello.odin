@@ -7,27 +7,32 @@ import "core:sync"
 import "core:time"
 
 
-main :: proc() {
-	/* Operational Setup - often alters `context` so integrated into `main` */
+main_program :: proc() {
+	fmt.println("Hello")
+}
+
+
+main :: proc() { 	// Operational setup before calling `main_program`
+
 	// (1) program duration tracking
 	when TIME_PROGRAM_DURATION_ENABLE {
-    	start_time := time.now()
+		start_time := time.now()
 	}
-    // (2) Global allocator change
-    when MIMALLOC_ENABLE {
-    	context.allocator = mi.global_allocator()
-    }
-    // (3) Profiler setup
-    when SPALL_ENABLE {
+	// (2) Global allocator change
+	when MIMALLOC_ENABLE {
+		context.allocator = mi.global_allocator()
+	}
+	// (3) Profiler setup
+	when SPALL_ENABLE {
 		spall_profiler_setup()
 		defer spall_profiler_destroy()
 	}
 	spall.SCOPED_EVENT(&global_spall_ctx, &g_spall_buffer, #procedure)
-    // (4) Back trace improvements
-    when BACKTRACE_ENABLE {
-    	context.assertion_failure_proc = back.assertion_failure_proc
-    	back.register_segfault_handler()
-    }
+	// (4) Back trace improvements
+	when BACKTRACE_ENABLE {
+		context.assertion_failure_proc = back.assertion_failure_proc
+		back.register_segfault_handler()
+	}
 	// (5) Memory tracking allocator to debug leaks and bad frees (double frees)
 	when TRACKING_ALLOCATOR_ENABLE {
 		alloc_interface, tracking_allocator := make_tracking_allocator_context()
@@ -37,13 +42,12 @@ main :: proc() {
 	// (6) Logger setup to stdout
 	context.logger = make_logging_context()
 	defer destroy_logging_context()
-    // (7) Time program duration on shutdown
-    when TIME_PROGRAM_DURATION_ENABLE {
+	// (7) Time program duration on shutdown
+	when TIME_PROGRAM_DURATION_ENABLE {
 		defer log_program_duration(start_time)
-    }
+	}
 
-	/* Main Program */
-    fmt.println("hello world")
+	main_program()
 }
 
 
@@ -78,21 +82,21 @@ global_spall_ctx: spall.Context
 @(thread_local)
 g_spall_buffer: spall.Buffer
 
-@cold
+@(cold)
 spall_profiler_setup :: proc() {
 	global_spall_ctx = spall.context_create("trace.spall") // global
 	buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
 	g_spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
 }
-@cold
+@(cold)
 spall_profiler_destroy :: proc() {
 	spall.buffer_destroy(&global_spall_ctx, &g_spall_buffer)
 	spall.context_destroy(&global_spall_ctx)
 }
 
 when TRACKING_ALLOCATOR_ENABLE && !BACKTRACE_ENABLE {
-	@cold
-	@require_results
+	@(cold)
+	@(require_results)
 	make_tracking_allocator_context :: proc(
 		allocator := context.allocator,
 		loc := #caller_location,
@@ -106,7 +110,7 @@ when TRACKING_ALLOCATOR_ENABLE && !BACKTRACE_ENABLE {
 		return mem.tracking_allocator(tracking_allocator), tracking_allocator
 	}
 
-	@cold
+	@(cold)
 	tracking_allocator_finalise :: proc(tracking_allocator: ^mem.Tracking_Allocator) {
 		spall.SCOPED_EVENT(&global_spall_ctx, &g_spall_buffer, #procedure)
 
@@ -122,8 +126,8 @@ when TRACKING_ALLOCATOR_ENABLE && !BACKTRACE_ENABLE {
 		mem.tracking_allocator_destroy(tracking_allocator)
 	}
 } else when TRACKING_ALLOCATOR_ENABLE && BACKTRACE_ENABLE {
-	@cold
-	@require_results
+	@(cold)
+	@(require_results)
 	make_tracking_allocator_context :: proc(
 		allocator := context.allocator,
 		loc := #caller_location,
@@ -137,7 +141,7 @@ when TRACKING_ALLOCATOR_ENABLE && !BACKTRACE_ENABLE {
 		return back.tracking_allocator(tracking_allocator), tracking_allocator
 	}
 
-	@cold
+	@(cold)
 	tracking_allocator_finalise :: proc(tracking_allocator: ^back.Tracking_Allocator) {
 		spall.SCOPED_EVENT(&global_spall_ctx, &g_spall_buffer, #procedure)
 		back.tracking_allocator_print_results(&track)
@@ -145,20 +149,20 @@ when TRACKING_ALLOCATOR_ENABLE && !BACKTRACE_ENABLE {
 	}
 }
 
-@cold
-@require_results
+@(cold)
+@(require_results)
 make_logging_context :: proc() -> log.Logger {
 	spall.SCOPED_EVENT(&global_spall_ctx, &g_spall_buffer, #procedure)
 	return log.create_console_logger(lowest = .Info)
 }
 
-@cold
+@(cold)
 destroy_logging_context :: proc() {
 	spall.SCOPED_EVENT(&global_spall_ctx, &g_spall_buffer, #procedure)
 	log.destroy_console_logger(context.logger)
 }
 
-@cold
+@(cold)
 log_program_duration :: proc(start_time: time.Time) {
 	spall.SCOPED_EVENT(&global_spall_ctx, &g_spall_buffer, #procedure)
 	run_time := time.since(start_time)

@@ -58,6 +58,7 @@ some project specific customisation.
 
 The sublime `.sublime-snippet` example triggers creation of this "main" skeleton, perhaps useful when want a quick
 script file without necessarily using the `justfile` for build management. Copy to your sublime `Packages/User` folder.
+Similarly, there is a snippet for filling in a new empty Justfile triggered by "odin".
 
 
 ## Language Server Configuration

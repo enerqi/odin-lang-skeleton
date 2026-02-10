@@ -146,7 +146,7 @@ when TRACKING_ALLOCATOR_ENABLE && !BACKTRACE_ENABLE {
 	@cold
 	tracking_allocator_finalise :: proc(tracking_allocator: ^back.Tracking_Allocator) {
 		spall.SCOPED_EVENT(&global_spall_ctx, &g_spall_buffer, #procedure)
-		back.tracking_allocator_print_results(&track)
+		back.tracking_allocator_print_results(tracking_allocator)
 		back.tracking_allocator_destroy(tracking_allocator)
 	}
 }

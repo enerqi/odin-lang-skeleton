@@ -10,7 +10,7 @@ import "core:sync"
 import "core:time"
 
 
-main_program :: proc() {
+main_program :: proc() { 	// consider moving this to a different file to separate from operational setup
 	fmt.println("Hello")
 }
 

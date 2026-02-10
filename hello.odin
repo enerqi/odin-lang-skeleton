@@ -197,7 +197,7 @@ when TRACKING_ALLOCATOR_ENABLE {
 		@(cold)
 		tracking_allocator_finalise :: proc(tracking_allocator: ^back.Tracking_Allocator) {
 			SPALL_SCOPED_EVENT(name = #procedure)
-			back.tracking_allocator_print_results(&track)
+			back.tracking_allocator_print_results(tracking_allocator)
 			back.tracking_allocator_destroy(tracking_allocator)
 		}
 	}

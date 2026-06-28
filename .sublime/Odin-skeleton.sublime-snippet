@@ -12,12 +12,20 @@ import "core:sync"
 import "core:time"
 
 
-main_program :: proc() { 	// consider moving this to a different file to separate from operational setup
+main_program :: proc() -> (exit_code: int) { 	// consider moving this to a different file to separate from operational setup
 	${2:fmt.println("Hello")}
+	return 0 	// return non-zero to signal failure to the OS / shell; `main` passes this to `os.exit`
 }
 
 
 main :: proc() { 	// Operational setup before calling `main_program`
+	// `os.exit` sets the process exit code but terminates immediately, skipping deferred cleanup. Defer it
+	// at the very top so it runs LAST (defers are LIFO) -- after every teardown defer below. Odin evaluates
+	// a deferred call's arguments at scope exit (not at the defer site, unlike Go), so this reads the final
+	// `exit_code` that `main_program` assigns.
+	exit_code: int
+	defer os.exit(exit_code)
+
 
 	// (1) program duration tracking
 	when TIME_PROGRAM_DURATION_ENABLE {
@@ -52,7 +60,7 @@ main :: proc() { 	// Operational setup before calling `main_program`
 		defer log_program_duration(start_time)
 	}
 
-	main_program()
+	exit_code = main_program()
 }
 
 

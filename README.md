@@ -40,6 +40,7 @@ compile entirely (needs a prior `run_*` of the same profile):
 * `just ols-config` — (re)generate `ols.json` (see [Language Server Configuration](#language-server-configuration))
 * `just snippets` / `just snippets-check` — (re)generate / verify the editor snippets (see the Sublime section)
 * `just install-sublime` — install the snippets + build systems into Sublime Text's global config (see the Sublime section)
+* `just sublime-build-init` — add a project-local build-system stub to the `.sublime-project` (see the Sublime section)
 
 Notes:
 
@@ -76,8 +77,6 @@ The `OdinJustTarget.sublime-build` file is an example [sublime build file](https
 The `Odin.sublime-build` file is similar but doesn't assume you have `just` installed.
 Same for the very basic `.sublime-project` file.
 
-Rename the `.sublime-project` file to match your project if keeping.
-
 If you install the `.sublime-build` file(s) you get a lot of build options for *compiling* either the individual file
 or the current package of the file open in the editor. The artifacts are output to the `target` directory (or
 current directory if not using `just`).
@@ -102,6 +101,13 @@ Tools → Build System menu) in all windows. So you install them once and they a
 `.sublime-build` files into Sublime's `Packages/User` directory (resolved per-OS; override with the `SUBLIME_USER_DIR`
 env var if your install is non-standard). The per-project `.sublime-project` file is intentionally not installed.
 
+If instead you want a **project-local** build system — one that only shows up when this project is open and needs no
+global install — Sublime reads it from the `"build_systems"` key inside the `.sublime-project` file (loaded
+automatically when you open the project). `just sublime-build-init` seeds that key with one working `just run` build plus
+commented-out variant examples (release / test / lint / current-file) for you to extend; it refuses if the project
+file already has a `build_systems` entry. This recipe is kept by `just new`, so a freshly scaffolded project can add
+its own build straight away. (`.sublime-project` is loose JSON — `//` comments and trailing commas are allowed.)
+
 `just new` copies the `.sublime-snippet` files into a new project so you stay aware of them, but strips the
 snippet-generator recipes from the copied justfile (they only maintain this skeleton) — once detached, treat the copied
 snippets as a one-off starting point rather than something kept in sync.
@@ -115,9 +121,11 @@ silently drift out of date:
   produce — wire it into a pre-commit hook or CI to catch drift.
 
 The generator only adds the snippet XML wrapper plus a few `${n:default}` interactive fields (package name, the
-`main_program` body, the `#config` defaults, the executable names). Recipes wrapped between the `# >>> skeleton-only`
-and `# <<< skeleton-only` markers in the `justfile` (e.g. `new`, `snippets`) are stripped from the Justfile snippet,
-since they only make sense inside this skeleton repo, not in a project the snippet is dropped into.
+`main_program` body, the `#config` defaults, the executable names). Recipes fenced by `# >>> name` / `# <<< name`
+markers in the `justfile` are stripped from the Justfile snippet. Two marker names are used: `skeleton-only` (e.g.
+`new`, `snippets` — meaningless outside this repo, so `just new` also drops them) and `snippet-exclude` (e.g.
+`sublime-build-init` — kept by `just new` but left out of the snippet because it contains literal `$` that Sublime would
+otherwise parse as snippet fields).
 
 
 ## Language Server Configuration

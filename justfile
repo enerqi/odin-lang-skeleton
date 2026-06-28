@@ -123,6 +123,72 @@ install-sublime:
     print("-> " + target)
 
 
+# >>> snippet-exclude
+# add a `build_systems` stub to the project's .sublime-project so that opening the project in Sublime
+# exposes project-local build variants (Tools -> Build System) with no global install. Seeds one working
+# `just run` build plus commented-out examples to extend. Refuses if a build_systems entry already exists.
+# (Excluded from the Just-Odin snippet because it contains literal `$file` / `$project_path` which would
+# be parsed as snippet fields; still copied into new projects by `just new`.)
+[script("python")]
+sublime-build-init:
+    import glob, os, sys
+    matches = glob.glob(os.path.join(".sublime", "*.sublime-project"))
+    if not matches:
+        sys.exit("no .sublime/*.sublime-project file found")
+    if len(matches) > 1:
+        sys.exit("multiple .sublime-project files found: " + ", ".join(matches))
+    path = matches[0]
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    if "build_systems" in text:
+        sys.exit(path + " already has a build_systems entry - edit it by hand")
+    name = os.path.splitext(os.path.basename(path))[0]
+    block = (
+        '    "build_systems":\n'
+        '    [\n'
+        '        {\n'
+        '            "name": "' + name + ' (just)",\n'
+        '            "selector": "source.odin",\n'
+        '            "working_dir": "$project_path/..",\n'
+        '\n'
+        '            // file_regex turns lines of build output into clickable error links. Odin reports\n'
+        '            // diagnostics as `path(line:column) message`, so the four regex capture groups below\n'
+        '            // map, in order, to (1) file path (2) line (3) column (4) message -- the order Sublime\n'
+        '            // expects. A matched line becomes a link that jumps to that file/line/column; F4 and\n'
+        '            // Shift+F4 step forward/back through the matches. The doubled backslashes are JSON\n'
+        '            // string escaping: `\\\\(` in this file is the regex `\\(` (a literal open paren).\n'
+        '            "file_regex": "^(.+)\\\\(([0-9]+):([0-9]+)\\\\) (.+)$",\n'
+        '\n'
+        '            "shell_cmd": "just run",\n'
+        '\n'
+        '            // uncomment / extend; each variant appears under Tools -> Build With... Sublime expands\n'
+        '            // these build variables in shell_cmd / working_dir (full list:\n'
+        '            // https://www.sublimetext.com/docs/build_systems.html#variables):\n'
+        '            //   $file            full path of the current file,  e.g. /home/me/proj/src/main.odin\n'
+        '            //   $file_path       directory of the current file (its package dir for Odin)\n'
+        '            //   $file_base_name  current file name without extension,  e.g. main\n'
+        '            //   $folder          first folder open in the side bar (the project root; no project file needed)\n'
+        '            //   $project_path    directory containing this .sublime-project file\n'
+        '            // "variants":\n'
+        '            // [\n'
+        '            //     { "name": "release",                "shell_cmd": "just run_release" },\n'
+        '            //     { "name": "test",                   "shell_cmd": "just test" },\n'
+        '            //     { "name": "lint",                   "shell_cmd": "just lint" },\n'
+        '            //     { "name": "current file (run)",     "shell_cmd": "odin run \\"$file\\" -file -debug" },\n'
+        '            //     { "name": "current package",        "shell_cmd": "odin build \\"$file_path\\" -debug" },\n'
+        '            //     { "name": "current file -> target", "working_dir": "$folder", "shell_cmd": "odin build \\"$file\\" -file -out:target/debug/$file_base_name.exe -debug" },\n'
+        '            // ],\n'
+        '        },\n'
+        '    ],\n'
+    )
+    idx = text.index("{") + 1
+    text = text[:idx] + "\n" + block.rstrip("\n") + text[idx:]
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    print("added build_systems stub to " + path)
+# <<< snippet-exclude
+
+
 # SKELETON: (re)generate ols.json so the editor's Odin language server resolves an extra collection
 # import (`import "{{collection_name}}:pkg"`). Only needed when you pull packages from a directory
 # outside this project. ols.json holds a machine-specific absolute path, so gitignore it and regenerate
@@ -166,6 +232,8 @@ new dest name="":
         sys.exit("refusing: '" + dest + "' is a file")
 
     def strip_skeleton_only(text):
+        # drop whole `# >>> skeleton-only` blocks; keep the content of other marker blocks (e.g.
+        # snippet-exclude) but drop their now-irrelevant marker comment lines.
         out, skip = [], False
         for line in text.splitlines(keepends=True):
             s = line.strip()
@@ -174,6 +242,8 @@ new dest name="":
                 continue
             if s == "# <<< skeleton-only":
                 skip = False
+                continue
+            if s.startswith("# >>> ") or s.startswith("# <<< "):
                 continue
             if not skip:
                 out.append(line)
@@ -247,20 +317,22 @@ _snippets mode:
             text = text.replace(find, repl, 1)
         return text
 
-    def strip_skeleton_only(text):
+    def strip_marked_blocks(text):
+        # drop every `# >>> name` ... `# <<< name` block (skeleton-only, snippet-exclude, ...): such
+        # recipes either only maintain the skeleton or contain literal `$` that would corrupt the snippet.
         out, skip = [], False
         for line in text.splitlines(keepends=True):
             s = line.strip()
-            if s == "# >>> skeleton-only":
+            if s.startswith("# >>> "):
                 skip = True
                 continue
-            if s == "# <<< skeleton-only":
+            if s.startswith("# <<< "):
                 skip = False
                 continue
             if not skip:
                 out.append(line)
         if skip:
-            sys.exit("unterminated '# >>> skeleton-only' block in justfile")
+            sys.exit("unterminated '# >>> ...' marker block in justfile")
         return "".join(out)
 
     def wrap(body, tab, scope):
@@ -290,7 +362,7 @@ _snippets mode:
         ])
 
     with open("justfile", encoding="utf-8") as f:
-        just = field_sub(strip_skeleton_only(f.read()), [
+        just = field_sub(strip_marked_blocks(f.read()), [
             ('main_name := "main.exe"', 'main_name := "${1:main.exe}"'),
             ('test_main_name := "test-main.exe"', 'test_main_name := "${2:test-main.exe}"'),
         ])

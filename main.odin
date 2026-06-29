@@ -89,6 +89,7 @@ import spall "core:prof/spall"
 
 // Profiling global / thread local data
 global_spall_ctx: spall.Context
+global_spall_backing: []u8
 @(thread_local)
 thread_local_spall_buffer: spall.Buffer
 
@@ -97,8 +98,8 @@ thread_local_spall_buffer: spall.Buffer
 @(cold)
 spall_profiler_setup :: proc() {
 	global_spall_ctx = spall.context_create("trace.spall") // global
-	buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE) // memset to pre touch? already done by odin?
-	thread_local_spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
+	global_spall_backing = make([]u8, spall.BUFFER_DEFAULT_SIZE)
+	thread_local_spall_buffer = spall.buffer_create(global_spall_backing, u32(sync.current_thread_id()))
 }
 
 // telemetry buffer setup for an extra thread. Must be run from the extra thread due to the thread local spall buffer
@@ -118,6 +119,7 @@ spall_thread_local_setup :: proc(allocator := context.allocator) -> (spall_backi
 spall_profiler_destroy :: proc() {
 	spall.buffer_destroy(&global_spall_ctx, &thread_local_spall_buffer)
 	spall.context_destroy(&global_spall_ctx)
+	delete(global_spall_backing) // buffer_destroy only flushes + zeroes the Buffer struct; the backing slice must be freed here
 }
 
 @(no_instrumentation)

@@ -336,12 +336,20 @@ new dest name="":
 			"3. This notice may not be removed or altered from any source distribution.\n"
 		).format(year=year)
 
+	# Paths that belong to the skeleton's own tooling rather than to the template. `tools/` holds the
+	# `odin-skel` binary's source and design docs (see tools/DESIGN.md) - a scaffolded project must not
+	# inherit it. Keep in sync with tools/DESIGN.md's "Repository layout" section.
+	EXCLUDED_PREFIXES = ("tools/",)
+
 	proj = r"{{name}}" or os.path.basename(os.path.normpath(dest))
 	files = subprocess.run(
 		["git", "ls-files"], capture_output=True, text=True, check=True
 	).stdout.splitlines()
-	copied = 0
+	copied = skipped = 0
 	for rel in files:
+		if rel.startswith(EXCLUDED_PREFIXES):
+			skipped += 1
+			continue
 		src = os.path.join(os.getcwd(), rel)
 		out_rel = rel
 		if rel.endswith(".sublime-project"):
@@ -360,6 +368,8 @@ new dest name="":
 			shutil.copy2(src, dst)
 		copied += 1
 	print("copied " + str(copied) + " skeleton files to " + dest + " (project '" + proj + "', Zlib license)")
+	if skipped:
+		print("skipped " + str(skipped) + " skeleton-tooling files (" + ", ".join(EXCLUDED_PREFIXES) + ")")
 
 
 # main.odin + the justfile are the source of truth, so the snippets cannot silently drift. Run after

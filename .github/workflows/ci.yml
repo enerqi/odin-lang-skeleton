@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+# A second push to the same branch makes the in-flight run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The skeleton uses the core:os process API that arrived when os2 was merged into core:os, so it
+  # needs a recent compiler. `nightly` is what this has been verified against; switch to `latest`
+  # once a tagged Odin release is known to carry that rewrite.
+  ODIN_RELEASE: nightly
+
+jobs:
+  # The drift guards are the point of this job: templates.odin and the .sublime-snippet files are
+  # generated copies of other files in the repo, and nothing but a check like this notices when a
+  # commit updates one side and not the other.
+  generated-files:
+    name: generated files are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v4
+      - name: embed-check
+        run: just embed-check
+      - name: snippets-check
+        run: just snippets-check
+
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release: ${{ env.ODIN_RELEASE }}
+
+      - uses: extractions/setup-just@v4
+
+      # `odin check .` covers only the root package, so the template and the tool are linted
+      # separately. Neither needs odinfmt, which is why `just format` is not run here - odinfmt has
+      # to be built from the ols repo and is optional for everything except formatting.
+      - name: lint template
+        run: just lint
+
+      - name: lint odin-skel
+        run: just lint_skel
+
+      - name: test template
+        run: just test
+
+      - name: test odin-skel
+        run: just test_skel
+
+      - name: build odin-skel
+        run: just build_skel
+
+      # The end-to-end case: scaffold a project from the embedded templates and confirm the result
+      # is a working Odin project on this platform. Catches path handling and line-ending mistakes
+      # that unit tests on the helpers alone would miss.
+      - name: scaffold and build a generated project
+        shell: bash
+        run: |
+          set -euo pipefail
+          just new "$RUNNER_TEMP/generated" ciproj
+          cd "$RUNNER_TEMP/generated"
+          just lint
+          just run
+          test -f .sublime/ciproj.sublime-project
+          test ! -e tools
+          test ! -e .github
+          grep -q "Copyright (c)" LICENSE
+          # `! grep ...` would be exempt from `set -e`, so the leak checks are written as explicit
+          # failures instead of relying on the exit status of a negated command.
+          for leaked in build_skel lint_skel test_skel _embed skeleton-only; do
+            if grep -q "$leaked" justfile; then
+              echo "skeleton-only content '$leaked' leaked into the generated justfile" >&2
+              exit 1
+            fi
+          done
+
+      # The output name carries `.exe` on every platform, matching the skeleton's own `main.exe`
+      # convention, so one invocation covers all runners.
+      - name: doctor
+        run: ./target/debug/odin-skel.exe doctor

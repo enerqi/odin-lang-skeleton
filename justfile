@@ -1,4 +1,8 @@
-set windows-shell := ["nu", "-c"]
+# Windows PowerShell 5.1 ships with Windows, so this needs no install - unlike nushell, which was the
+# previous default and is absent from stock machines and from GitHub's windows runners. `pwsh` (7.x)
+# would also work but has to be installed separately.
+# -NoProfile keeps recipes reproducible: a developer's profile cannot redefine an alias a recipe uses.
+set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 set shell := ["bash", "-c"]
 set unstable  # [script("python")] feature - https://github.com/casey/just/issues/1479
 
@@ -35,15 +39,19 @@ lint *args:
 	-mkdir -p target/release
 	-mkdir -p target/release_nochecks
 
+# `New-Item -ItemType Directory -Force` is PowerShell's idempotent mkdir -p: silent when the
+# directory already exists, so these need no leading `-` to swallow an error. (-Force is only
+# dangerous on files, where it truncates; on directories it just means "do not complain".)
+# ---
 # ensure the build artifacts top level directory exists
 [windows]
 @mktarget_dirs:
-	-mkdir target
-	-mkdir target/debug
-	-mkdir target/fast_debug
-	-mkdir target/release_debug
-	-mkdir target/release
-	-mkdir target/release_nochecks
+	New-Item -ItemType Directory -Force target | Out-Null
+	New-Item -ItemType Directory -Force target/debug | Out-Null
+	New-Item -ItemType Directory -Force target/fast_debug | Out-Null
+	New-Item -ItemType Directory -Force target/release_debug | Out-Null
+	New-Item -ItemType Directory -Force target/release | Out-Null
+	New-Item -ItemType Directory -Force target/release_nochecks | Out-Null
 
 # `-debug` implies `-o:none`, so this is the fastest to compile and the friendliest to step through.
 # (-keep-executable so `rerun_debug` can skip recompiling)
@@ -135,8 +143,19 @@ test1 name *args: mktarget_dirs
 	odin test . -debug -file -microarch:native -test-name:{{name}} -out:target/debug/{{test_main_name}} {{args}}
 
 # simple delete of all debug databases and executables in the target directory
+[unix]
 clean:
 	rm -rf target
+	just mktarget_dirs
+
+# PowerShell has no `rm -rf`: `rm` is an alias for Remove-Item, which rejects `-rf` outright
+# (NamedParameterNotFound), so the flags have to be spelled out. Guarded by Test-Path because
+# Remove-Item errors on a missing path.
+# ---
+# simple delete of all debug databases and executables in the target directory
+[windows]
+clean:
+	if (Test-Path target) { Remove-Item -Recurse -Force target }
 	just mktarget_dirs
 
 # build with some verbose diagnostics
@@ -276,90 +295,155 @@ ols-config:
 
 
 # >>> skeleton-only
-# Recipes below operate on the skeleton repo itself (scaffold a new project, regenerate the editor
-# snippets). They are stripped from the Just-Odin.sublime-snippet because they are meaningless once
-# the justfile is dropped into a real project. Leave the `# >>> / # <<< skeleton-only` markers in place.
+# Recipes below operate on the skeleton repo itself (scaffold a new project, build the odin-skel
+# tool, regenerate the editor snippets). They are stripped from the Just-Odin.sublime-snippet because
+# they are meaningless once the justfile is dropped into a real project. Leave the
+# `# >>> / # <<< skeleton-only` markers in place.
 
-# Dotfiles included (.gitignore, .editorconfig, .sublime/*, etc). Only git-tracked files are copied,
-# so build artifacts, .git and untracked local files (e.g. .claude) are left behind. The
-# `.sublime-project` file is renamed to the project name (defaults to the dest directory name). The
-# justfile is emitted without its `# >>> skeleton-only` recipes (new / snippets) since they only
-# maintain this skeleton; the *.sublime-snippet files ARE copied so the snippets are discoverable
-# (install them once, globally — see the README). The skeleton's own Unlicense LICENSE is replaced
-# with a fresh Zlib LICENSE (matching the Odin project's license).
+# Declared here rather than beside main_name / test_main_name at the top of the file so they are
+# stripped along with the rest of this block - a scaffolded project has no tools/skel to build.
+skel_name := "odin-skel.exe"
+skel_test_name := "test-odin-skel.exe"
+
+# `odin check .` only covers the root package, so tools/skel needs its own lint pass or it drifts
+# unchecked. Same flags as the root `lint` recipe.
+# ---
+# lint the odin-skel tool source
+lint_skel *args:
+	odin check tools/skel -vet -vet-cast -strict-style -vet-tabs {{args}}
+
+# run the odin-skel tool's tests
+test_skel *args: mktarget_dirs
+	odin test tools/skel -debug -out:target/debug/{{skel_test_name}} {{args}}
+
+# The version is stamped in at build time; an unstamped build reports "dev". Release builds pass
+# `-define:SKEL_VERSION=x.y.z` (see tools/DESIGN.md).
+# ---
+# build the odin-skel tool into target/debug/
+build_skel *args: mktarget_dirs
+	odin build tools/skel -debug -out:target/debug/{{skel_name}} {{args}}
+
+# What CI publishes: optimized, no debug info, and stamped with the tag it was built from.
+# Deliberately NOT -microarch:native - a published binary has to run on any machine of that
+# architecture, not just the builder.
+#   just build_skel_release -define:SKEL_VERSION=1.2.3
+# ---
+# build an optimized odin-skel into target/release/
+build_skel_release *args: mktarget_dirs
+	odin build tools/skel -o:speed -out:target/release/{{skel_name}} {{args}}
+
+# Thin wrapper: the scaffolding logic lives in the odin-skel binary and nowhere else, so the two
+# cannot drift (see tools/DESIGN.md, Decision 2). Build the binary first with `just build_skel`.
 # Usage:  just new ../my-new-project   or   just new ../dir projname
 # ---
 # copy this skeleton into a new or empty directory
 [script("python")]
 new dest name="":
-	import os, sys, shutil, subprocess, datetime
-	dest = r"{{dest}}"
-	if os.path.isdir(dest) and [e for e in os.listdir(dest) if e != ".git"]:
-		sys.exit("refusing: '" + dest + "' exists and is not empty (ignoring .git)")
-	if os.path.isfile(dest):
-		sys.exit("refusing: '" + dest + "' is a file")
+	import os, subprocess, sys
 
-	def strip_skeleton_only(text):
-		# drop whole `# >>> skeleton-only` blocks; keep the content of other marker blocks (e.g.
-		# snippet-exclude) but drop their now-irrelevant marker comment lines.
-		out, skip = [], False
-		for line in text.splitlines(keepends=True):
-			s = line.strip()
-			if s == "# >>> skeleton-only":
-				skip = True
-				continue
-			if s == "# <<< skeleton-only":
-				skip = False
-				continue
-			if s.startswith("# >>> ") or s.startswith("# <<< "):
-				continue
-			if not skip:
-				out.append(line)
-		return "".join(out).rstrip("\n") + "\n"
+	binary = os.path.join("target", "debug", "{{skel_name}}")
+	if not os.path.isfile(binary):
+		sys.exit("missing " + binary + " - run `just build_skel` first")
 
-	def zlib_license():
-		year = datetime.date.today().year
-		return (
-			"Copyright (c) {year}\n\n"
-			"This software is provided 'as-is', without any express or implied\n"
-			"warranty. In no event will the authors be held liable for any damages\n"
-			"arising from the use of this software.\n\n"
-			"Permission is granted to anyone to use this software for any purpose,\n"
-			"including commercial applications, and to alter it and redistribute it\n"
-			"freely, subject to the following restrictions:\n\n"
-			"1. The origin of this software must not be misrepresented; you must not\n"
-			"   claim that you wrote the original software. If you use this software\n"
-			"   in a product, an acknowledgment in the product documentation would be\n"
-			"   appreciated but is not required.\n\n"
-			"2. Altered source versions must be plainly marked as such, and must not be\n"
-			"   misrepresented as being the original software.\n\n"
-			"3. This notice may not be removed or altered from any source distribution.\n"
-		).format(year=year)
+	argv = [binary, "new", r"{{dest}}"]
+	name = r"{{name}}"
+	if name:
+		argv.append(name)
+	raise SystemExit(subprocess.run(argv).returncode)
 
-	proj = r"{{name}}" or os.path.basename(os.path.normpath(dest))
+
+# The tool embeds the template with `#load`, so tools/skel/templates.odin is a second listing of the
+# repo's own files and can go stale the moment one is added or removed. Same drift problem the
+# snippets have, so it gets the same treatment: a generator plus a --check mode for CI.
+# Run after adding, removing or renaming a template file.
+# ---
+# (re)generate tools/skel/templates.odin from the tracked template files
+embed:
+	just _embed write
+
+# Non-zero exit + diff if stale. Wire into pre-commit / CI alongside `snippets-check`.
+# ---
+# verify tools/skel/templates.odin matches the tracked template files
+embed-check:
+	just _embed check
+
+[script("python")]
+_embed mode:
+	import subprocess, sys, os, re
+
+	# Skeleton-only paths, never part of a scaffolded project:
+	#   tools/    the odin-skel source and its design notes
+	#   .github/  CI that runs embed-check / lint_skel / test_skel, all meaningless in a project
+	# A project-level CI template would be a separate file, not this one - see tools/DESIGN.md.
+	EXCLUDED_PREFIXES = ("tools/", ".github/")
+	GENERATED = os.path.join("tools", "skel", "templates.odin")
+
 	files = subprocess.run(
 		["git", "ls-files"], capture_output=True, text=True, check=True
 	).stdout.splitlines()
-	copied = 0
+	files = sorted(f for f in files if not f.startswith(EXCLUDED_PREFIXES))
+	if not files:
+		sys.exit("no template files found - is this a git checkout?")
+
+	lines = [
+		"// Code generated by `just embed`. DO NOT EDIT.",
+		"//",
+		"// One entry per tracked template file, embedded at compile time so that `odin-skel new` needs",
+		"// neither a network nor a clone. Regenerate with `just embed`; `just embed-check` fails if this",
+		"// file no longer matches the repository.",
+		"package skel",
+		"",
+		"TEMPLATES :: []Template{",
+	]
 	for rel in files:
-		src = os.path.join(os.getcwd(), rel)
-		out_rel = rel
-		if rel.endswith(".sublime-project"):
-			out_rel = os.path.join(os.path.dirname(rel), proj + ".sublime-project")
-		dst = os.path.join(dest, out_rel)
-		os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
-		if rel == "justfile":  # drop the skeleton-only recipes from the project's justfile
-			with open(src, encoding="utf-8") as f:
-				content = strip_skeleton_only(f.read())
-			with open(dst, "w", encoding="utf-8", newline="\n") as f:
-				f.write(content)
-		elif rel == "LICENSE":  # skeleton is Unlicense; new project gets a fresh Zlib license
-			with open(dst, "w", encoding="utf-8", newline="\n") as f:
-				f.write(zlib_license())
+		# #load resolves relative to this generated file, which lives two directories down.
+		load_path = "../../" + rel
+		lines.append('\t{path = "%s", data = #load("%s", string)},' % (rel, load_path))
+	lines.append("}")
+	content = "\n".join(lines) + "\n"
+
+	mode = r"{{mode}}"
+	if mode == "write":
+		with open(GENERATED, "w", encoding="utf-8", newline="\n") as f:
+			f.write(content)
+		print("wrote " + GENERATED + " (" + str(len(files)) + " template files)")
+	elif mode == "check":
+		# Compare the *file list*, not the file text. `just format` runs odinfmt over the whole tree
+		# including this generated file, and odinfmt rewrites `[]Template{` to `[]Template {` and
+		# wraps entries past character_width. A byte-exact check would therefore fail after every
+		# format for reasons that have nothing to do with drift. The risk actually worth catching is
+		# a template file being added, removed or renamed without regenerating, so that is what is
+		# compared - which also makes the check immune to future odinfmt style changes.
+		try:
+			with open(GENERATED, encoding="utf-8") as f:
+				current = f.read()
+		except FileNotFoundError:
+			sys.exit("missing " + GENERATED + ", run `just embed`")
+
+		embedded = re.findall(r'path\s*=\s*"([^"]*)"', current)
+		loaded = re.findall(r'#load\(\s*"([^"]*)"', current)
+
+		problems = []
+		for missing in sorted(set(files) - set(embedded)):
+			problems.append("  not embedded: " + missing)
+		for extra in sorted(set(embedded) - set(files)):
+			problems.append("  no longer tracked (or now excluded): " + extra)
+
+		# Each entry must load the file it claims to be; a hand-edit could otherwise pair a path with
+		# someone else's contents and nothing would notice.
+		if len(embedded) != len(loaded):
+			problems.append("  %d path entries but %d #load entries" % (len(embedded), len(loaded)))
 		else:
-			shutil.copy2(src, dst)
-		copied += 1
-	print("copied " + str(copied) + " skeleton files to " + dest + " (project '" + proj + "', Zlib license)")
+			for path, load in zip(embedded, loaded):
+				if load != "../../" + path:
+					problems.append("  %s loads %s" % (path, load))
+
+		if problems:
+			print("\n".join(problems))
+			sys.exit("stale embed list, run `just embed`")
+		print("embedded templates up to date (" + str(len(files)) + " files)")
+	else:
+		sys.exit("unknown mode: " + mode)
 
 
 # main.odin + the justfile are the source of truth, so the snippets cannot silently drift. Run after

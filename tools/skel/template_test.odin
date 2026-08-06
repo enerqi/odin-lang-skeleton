@@ -1,5 +1,6 @@
 package skel
 
+import "core:os"
 import "core:strings"
 import "core:testing"
 
@@ -131,4 +132,57 @@ test_templates_include_essentials :: proc(t: ^testing.T) {
 		}
 		testing.expectf(t, found, "template %q missing - run `just embed`", want)
 	}
+}
+
+/*
+Regression test for the CI failure where scaffolding worked on Windows and failed on Linux and macOS.
+
+`os.make_directory_all` returns `General_Error.Exist` for an existing directory on POSIX but succeeds
+on Windows, so every template file after the first in a directory aborted `new` on non-Windows. This
+asserts the idempotence directly rather than relying on a platform to expose it.
+*/
+@(test)
+test_ensure_directory_is_idempotent :: proc(t: ^testing.T) {
+	root, terr := os.make_directory_temp("", "odin-skel-test-*", context.allocator)
+	if !testing.expect_value(t, terr, nil) {
+		return
+	}
+	defer {
+		os.remove_all(root)
+		delete(root)
+	}
+
+	nested := strings.concatenate({root, "/a/b"})
+	defer delete(nested)
+
+	testing.expect_value(t, ensure_directory(nested), nil)
+	// The call that used to fail: same directory, already present.
+	testing.expect_value(t, ensure_directory(nested), nil)
+	// And an existing intermediate with a new leaf below it.
+	deeper := strings.concatenate({nested, "/c"})
+	defer delete(deeper)
+	testing.expect_value(t, ensure_directory(deeper), nil)
+
+	testing.expect(t, os.is_directory(deeper))
+}
+
+// A file where a directory is expected must stay an error on every platform. Windows reports it as
+// `.Exist`, the same code POSIX uses for the harmless "already there" case, so tolerating `.Exist`
+// unconditionally would silently swallow it.
+@(test)
+test_ensure_directory_rejects_a_file_in_the_way :: proc(t: ^testing.T) {
+	root, terr := os.make_directory_temp("", "odin-skel-test-*", context.allocator)
+	if !testing.expect_value(t, terr, nil) {
+		return
+	}
+	defer {
+		os.remove_all(root)
+		delete(root)
+	}
+
+	blocker := strings.concatenate({root, "/blocker"})
+	defer delete(blocker)
+	testing.expect_value(t, os.write_entire_file(blocker, transmute([]byte)string("x")), nil)
+
+	testing.expect(t, ensure_directory(blocker) != nil, "a file in the way must not be reported as success")
 }

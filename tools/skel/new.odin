@@ -70,7 +70,7 @@ new :: proc(dest: string, name: string) -> int {
 		defer delete(full)
 
 		if dir := path_dir(full); dir != "" {
-			if err := os.make_directory_all(dir); err != nil {
+			if err := ensure_directory(dir); err != nil {
 				fmt.eprintfln("odin-skel: could not create %q: %v", dir, err)
 				return 1
 			}
@@ -85,6 +85,35 @@ new :: proc(dest: string, name: string) -> int {
 
 	fmt.printfln("created %d files in %s (project %q, Zlib license)", written, dest, project)
 	return 0
+}
+
+/*
+Create `dir` and any missing parents, treating "it is already there" as success.
+
+`os.make_directory_all` does not mean the same thing on every platform, and the difference is not
+cosmetic:
+
+  Linux/macOS  returns `.Exist` when nothing was created, i.e. the directory was already there
+               (`return nil if has_created else .Exist`)
+  Windows      returns nil when the path is already a directory, and `.Exist` only when the path
+               exists but is *not* a directory - a genuine error
+
+Every template file after the first in a given directory hits that path, so the naive version
+scaffolded fine on Windows and failed on the second file everywhere else.
+
+So `.Exist` is tolerated only when the path really is a directory afterwards. That makes the POSIX
+"already there" case succeed without also swallowing the Windows "there is a file in the way" case.
+The leading `is_directory` check is kept so the common path never provokes an error at all.
+*/
+ensure_directory :: proc(dir: string) -> os.Error {
+	if os.is_directory(dir) {
+		return nil
+	}
+	err := os.make_directory_all(dir)
+	if general, ok := err.(os.General_Error); ok && general == .Exist && os.is_directory(dir) {
+		return nil
+	}
+	return err
 }
 
 // A destination is usable when it does not exist, or exists with nothing in it but `.git`.

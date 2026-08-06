@@ -133,6 +133,7 @@ The tool's source lives under `tools/`. The repository root remains a working Od
 ├── justfile
 ├── odinfmt.json
 ├── .sublime/
+├── CHANGELOG.md       <- NOT part of the template: this skeleton's own history
 ├── .github/           <- NOT part of the template: CI for the skeleton itself
 │   └── workflows/
 └── tools/             <- NOT part of the template
@@ -166,8 +167,11 @@ This is implemented in the `new` recipe:
 EXCLUDED_PREFIXES = ("tools/",)
 ```
 
+plus `EXCLUDED_FILES` for individual paths such as `CHANGELOG.md`, which is a single tracked file at
+the root rather than a directory.
+
 `just new` reports the skipped count so an accidental exclusion is visible rather than silent. **Any
-new skeleton-tooling directory must be added to that tuple and to the tree above.**
+new skeleton-tooling path must be added to one of those tuples and to the tree above.**
 
 Note that `.gitignore`-style exclusion does not work here: `just new` copies from `git ls-files`, so
 `tools/` has to be tracked (it is source code) while still being skipped at copy time. The exclusion is

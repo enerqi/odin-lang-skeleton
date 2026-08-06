@@ -117,10 +117,25 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
+      # Needed for CHANGELOG.md - this job had nothing checked out before.
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      # GitHub's generated notes list merged pull requests only, so on a repo that pushes straight to
+      # master they come out nearly empty. The changelog section is prepended to them: the action's
+      # contract is "if body is specified, the body will be pre-pended to the automatically generated
+      # notes", so the release ends up with the curated summary first and the PR list beneath it.
+      # A tag with no matching section fails here rather than publishing an empty release.
+      - name: release notes from CHANGELOG.md
+        run: just changelog_section "${GITHUB_REF_NAME}" > release-notes.md
+
+      - name: preview notes
+        run: cat release-notes.md
 
       # Generated after the download so one file covers every target. The binaries are unsigned, so
       # this is the only way a user can check that what they downloaded is what CI built.
@@ -137,5 +152,6 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          body_path: release-notes.md
           generate_release_notes: true
           fail_on_unmatched_files: true

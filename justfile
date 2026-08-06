@@ -352,6 +352,55 @@ new dest name="":
 	raise SystemExit(subprocess.run(argv).returncode)
 
 
+# Prints the CHANGELOG.md section for VERSION, which the release workflow prepends to the release's
+# auto-generated notes. Exits non-zero when there is no matching section: GitHub's generator lists
+# merged pull requests only, so for a repo that pushes straight to master a missing section means a
+# release with essentially no notes, which is worth failing over rather than shipping.
+#   just changelog_section 0.1.0
+# ---
+# print the CHANGELOG.md section for a version
+[script("python")]
+changelog_section version:
+	import re, sys
+
+	# The changelog contains em dashes and similar; without this the Windows console encoding
+	# mangles them, and the release notes would carry the damage.
+	sys.stdout.reconfigure(encoding="utf-8")
+
+	want = r"{{version}}".lstrip("v")
+	with open("CHANGELOG.md", encoding="utf-8") as f:
+		lines = f.read().splitlines()
+
+	# Headings look like `## [0.1.0] - 2026-08-06`; the brackets and date are both optional so a
+	# hand-written `## 0.1.0` works too.
+	heading = re.compile(r"^##\s+\[?([^\]\s]+)\]?")
+
+	start = None
+	for i, line in enumerate(lines):
+		m = heading.match(line)
+		if not m:
+			continue
+		if start is None and m.group(1).lstrip("v") == want:
+			start = i + 1
+		elif start is not None:
+			lines = lines[start:i]
+			break
+	else:
+		if start is None:
+			sys.exit("no '## " + want + "' section in CHANGELOG.md - add one before tagging")
+		lines = lines[start:]
+
+	# The last section in the file runs to EOF, which sweeps up the trailing link definitions
+	# (`[0.1.0]: https://...`). They belong to the document, not to the release notes.
+	while lines and (not lines[-1].strip() or re.match(r"^\[[^\]]+\]:\s", lines[-1])):
+		lines.pop()
+
+	body = "\n".join(lines).strip("\n")
+	if not body:
+		sys.exit("the '## " + want + "' section in CHANGELOG.md is empty")
+	print(body)
+
+
 # The tool embeds the template with `#load`, so tools/skel/templates.odin is a second listing of the
 # repo's own files and can go stale the moment one is added or removed. Same drift problem the
 # snippets have, so it gets the same treatment: a generator plus a --check mode for CI.
@@ -372,16 +421,21 @@ _embed mode:
 	import subprocess, sys, os, re
 
 	# Skeleton-only paths, never part of a scaffolded project:
-	#   tools/    the odin-skel source and its design notes
-	#   .github/  CI that runs embed-check / lint_skel / test_skel, all meaningless in a project
+	#   tools/        the odin-skel source and its design notes
+	#   .github/      CI that runs embed-check / lint_skel / test_skel, all meaningless in a project
+	#   CHANGELOG.md  this skeleton's history; a new project starts with none of its own
 	# A project-level CI template would be a separate file, not this one - see tools/DESIGN.md.
 	EXCLUDED_PREFIXES = ("tools/", ".github/")
+	EXCLUDED_FILES = ("CHANGELOG.md",)
 	GENERATED = os.path.join("tools", "skel", "templates.odin")
 
 	files = subprocess.run(
 		["git", "ls-files"], capture_output=True, text=True, check=True
 	).stdout.splitlines()
-	files = sorted(f for f in files if not f.startswith(EXCLUDED_PREFIXES))
+	files = sorted(
+		f for f in files
+		if not f.startswith(EXCLUDED_PREFIXES) and f not in EXCLUDED_FILES
+	)
 	if not files:
 		sys.exit("no template files found - is this a git checkout?")
 

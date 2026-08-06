@@ -162,6 +162,17 @@ its leading `v`), and asserts the binary reports that exact version before it is
 be run from the Actions tab via *workflow_dispatch* to exercise the matrix without tagging: those builds are
 stamped `dev-<sha>` and are not published.
 
+**Add a `CHANGELOG.md` section before tagging.** The release notes are that section followed by GitHub's
+auto-generated pull-request list. Since most work here lands by pushing to `master` rather than through pull
+requests, the generated half is close to empty, so the changelog is where the actual summary lives. A tag with no
+matching section fails the release rather than publishing empty notes — check what will be used with:
+
+```
+just changelog_section 0.1.0
+```
+
+Move the `## [Unreleased]` entries into a new `## [x.y.z] - YYYY-MM-DD` heading as part of the release commit.
+
 <!-- <<< skeleton-only -->
 
 <!-- >>> skeleton-only -->

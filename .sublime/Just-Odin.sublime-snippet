@@ -17,9 +17,14 @@ format:
 	odinfmt -w .
 
 
-# lint checks for style and potential bugs. Accepts extra args like `-show-timings` as needed
+# `-vet-tabs` is the only compiler-side enforcement of .editorconfig's `indent_style = tab`; it is not
+# implied by `-strict-style`, so without it a space-indented file lints clean. Nothing in the Odin
+# toolchain checks line endings - those are held in place by .gitattributes and odinfmt.json instead.
+# Accepts extra args like `-show-timings` as needed.
+# ---
+# lint checks for style and potential bugs. No code generation
 lint *args:
-	odin check . -vet -vet-cast -strict-style -no-entry-point {{args}}
+	odin check . -vet -vet-cast -strict-style -vet-tabs -no-entry-point {{args}}
 
 
 # ensure the build artifacts top level directory exists

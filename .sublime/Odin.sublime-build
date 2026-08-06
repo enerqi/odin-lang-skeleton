@@ -8,7 +8,7 @@
 		//
 		// syntax check
 		{ "name": "current file - syntax check", "shell_cmd": "odin check \"$file\" -file -no-entry-point" },
-		{ "name": "current file - strict vet check", "shell_cmd": "odin check \"$file\" -file -vet -vet-cast -strict-style -no-entry-point" },
+		{ "name": "current file - strict vet check", "shell_cmd": "odin check \"$file\" -file -vet -vet-cast -strict-style -vet-tabs -no-entry-point" },
 		// run
 		{ "name": "current file - run (debug, o:none)", "shell_cmd": "odin run \"$file\" -file -o:none -debug" },
 		{ "name": "current file - run (debug, o:minimal)", "shell_cmd": "odin run \"$file\" -file -o:minimal -debug" },
@@ -93,7 +93,7 @@
 		//
 		// syntax check
 		{ "name": "current package - syntax check", "shell_cmd": "odin check \"$file_path\" -no-entry-point" },
-		{ "name": "current package - strict vet check", "shell_cmd": "odin check \"$file_path\" -vet -vet-cast -strict-style -no-entry-point" },
+		{ "name": "current package - strict vet check", "shell_cmd": "odin check \"$file_path\" -vet -vet-cast -strict-style -vet-tabs -no-entry-point" },
 		// run
 		{ "name": "current package - run (debug, o:none)", "shell_cmd": "odin run \"$file_path\" -o:none -debug" },
 		{ "name": "current package - run (debug, o:minimal)", "shell_cmd": "odin run \"$file_path\" -o:minimal -debug" },

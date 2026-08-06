@@ -65,8 +65,15 @@ Notes:
 - `format` assumes `odinfmt` is on your `PATH`. It can be built from source within the
   [Odin language server](https://github.com/DanielGavin/ols) code (see `odinfmt.bat` / `odinfmt.sh`). OLS is
   recommended when editing Odin code.
-- `clean` assumes your shell can do `rm -rf`. The opinionated default shell on Windows is `nushell` (`nu -c`), which
-  supports it — see [configuring the just shell](https://just.systems/man/en/chapter_63.html?highlight=set%20shell#configuring-the-shell).
+- Recipes run under `bash` everywhere except Windows, where they run under Windows PowerShell
+  (`powershell.exe -NoLogo -NoProfile -Command`). PowerShell 5.1 ships with Windows, so there is nothing to install;
+  `-NoProfile` keeps recipes reproducible by stopping a developer's profile from redefining an alias a recipe uses.
+  See [configuring the just shell](https://just.systems/man/en/chapter_63.html?highlight=set%20shell#configuring-the-shell)
+  to change it.
+- The two recipes that cannot be written once for both shells — `mktarget_dirs` and `clean` — are split with just's
+  `[unix]` / `[windows]` attributes. PowerShell has no `rm -rf` (`rm` is an alias for `Remove-Item`, which rejects
+  `-rf`), and uses `New-Item -ItemType Directory -Force` as its idempotent `mkdir -p`. Everything else is
+  shell-agnostic: the recipes invoke `odin`, `just` and `odinfmt` directly rather than leaning on shell builtins.
 
 
 ## Creating a new project

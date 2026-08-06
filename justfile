@@ -1,4 +1,8 @@
-set windows-shell := ["nu", "-c"]
+# Windows PowerShell 5.1 ships with Windows, so this needs no install - unlike nushell, which was the
+# previous default and is absent from stock machines and from GitHub's windows runners. `pwsh` (7.x)
+# would also work but has to be installed separately.
+# -NoProfile keeps recipes reproducible: a developer's profile cannot redefine an alias a recipe uses.
+set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 set shell := ["bash", "-c"]
 set unstable  # [script("python")] feature - https://github.com/casey/just/issues/1479
 
@@ -35,15 +39,19 @@ lint *args:
 	-mkdir -p target/release
 	-mkdir -p target/release_nochecks
 
+# `New-Item -ItemType Directory -Force` is PowerShell's idempotent mkdir -p: silent when the
+# directory already exists, so these need no leading `-` to swallow an error. (-Force is only
+# dangerous on files, where it truncates; on directories it just means "do not complain".)
+# ---
 # ensure the build artifacts top level directory exists
 [windows]
 @mktarget_dirs:
-	-mkdir target
-	-mkdir target/debug
-	-mkdir target/fast_debug
-	-mkdir target/release_debug
-	-mkdir target/release
-	-mkdir target/release_nochecks
+	New-Item -ItemType Directory -Force target | Out-Null
+	New-Item -ItemType Directory -Force target/debug | Out-Null
+	New-Item -ItemType Directory -Force target/fast_debug | Out-Null
+	New-Item -ItemType Directory -Force target/release_debug | Out-Null
+	New-Item -ItemType Directory -Force target/release | Out-Null
+	New-Item -ItemType Directory -Force target/release_nochecks | Out-Null
 
 # `-debug` implies `-o:none`, so this is the fastest to compile and the friendliest to step through.
 # (-keep-executable so `rerun_debug` can skip recompiling)
@@ -135,8 +143,19 @@ test1 name *args: mktarget_dirs
 	odin test . -debug -file -microarch:native -test-name:{{name}} -out:target/debug/{{test_main_name}} {{args}}
 
 # simple delete of all debug databases and executables in the target directory
+[unix]
 clean:
 	rm -rf target
+	just mktarget_dirs
+
+# PowerShell has no `rm -rf`: `rm` is an alias for Remove-Item, which rejects `-rf` outright
+# (NamedParameterNotFound), so the flags have to be spelled out. Guarded by Test-Path because
+# Remove-Item errors on a missing path.
+# ---
+# simple delete of all debug databases and executables in the target directory
+[windows]
+clean:
+	if (Test-Path target) { Remove-Item -Recurse -Force target }
 	just mktarget_dirs
 
 # build with some verbose diagnostics
@@ -350,7 +369,7 @@ embed-check:
 
 [script("python")]
 _embed mode:
-	import subprocess, sys, os, difflib
+	import subprocess, sys, os, re
 
 	# Skeleton-only paths, never part of a scaffolded project:
 	#   tools/    the odin-skel source and its design notes
@@ -389,18 +408,40 @@ _embed mode:
 			f.write(content)
 		print("wrote " + GENERATED + " (" + str(len(files)) + " template files)")
 	elif mode == "check":
+		# Compare the *file list*, not the file text. `just format` runs odinfmt over the whole tree
+		# including this generated file, and odinfmt rewrites `[]Template{` to `[]Template {` and
+		# wraps entries past character_width. A byte-exact check would therefore fail after every
+		# format for reasons that have nothing to do with drift. The risk actually worth catching is
+		# a template file being added, removed or renamed without regenerating, so that is what is
+		# compared - which also makes the check immune to future odinfmt style changes.
 		try:
 			with open(GENERATED, encoding="utf-8") as f:
 				current = f.read()
 		except FileNotFoundError:
 			sys.exit("missing " + GENERATED + ", run `just embed`")
-		if current != content:
-			sys.stdout.writelines(difflib.unified_diff(
-				current.splitlines(keepends=True), content.splitlines(keepends=True),
-				fromfile=GENERATED + " (committed)", tofile=GENERATED + " (generated)",
-			))
+
+		embedded = re.findall(r'path\s*=\s*"([^"]*)"', current)
+		loaded = re.findall(r'#load\(\s*"([^"]*)"', current)
+
+		problems = []
+		for missing in sorted(set(files) - set(embedded)):
+			problems.append("  not embedded: " + missing)
+		for extra in sorted(set(embedded) - set(files)):
+			problems.append("  no longer tracked (or now excluded): " + extra)
+
+		# Each entry must load the file it claims to be; a hand-edit could otherwise pair a path with
+		# someone else's contents and nothing would notice.
+		if len(embedded) != len(loaded):
+			problems.append("  %d path entries but %d #load entries" % (len(embedded), len(loaded)))
+		else:
+			for path, load in zip(embedded, loaded):
+				if load != "../../" + path:
+					problems.append("  %s loads %s" % (path, load))
+
+		if problems:
+			print("\n".join(problems))
 			sys.exit("stale embed list, run `just embed`")
-		print("embedded templates up to date")
+		print("embedded templates up to date (" + str(len(files)) + " files)")
 	else:
 		sys.exit("unknown mode: " + mode)
 

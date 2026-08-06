@@ -32,10 +32,7 @@ new :: proc(dest: string, name: string) -> int {
 
 	project := name if name != "" else path_base(dest)
 	if project == "" || project == "." || project == ".." {
-		fmt.eprintfln(
-			"odin-skel: could not derive a project name from %q - pass one explicitly",
-			dest,
-		)
+		fmt.eprintfln("odin-skel: could not derive a project name from %q - pass one explicitly", dest)
 		return 1
 	}
 

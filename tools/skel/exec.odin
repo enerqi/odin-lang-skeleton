@@ -36,11 +36,7 @@ probe :: proc(command: []string, allocator := context.allocator) -> Probe {
 		text = strings.trim_space(string(errout))
 	}
 
-	return Probe {
-		found = true,
-		exit_code = state.exit_code,
-		output = strings.clone(text, allocator),
-	}
+	return Probe{found = true, exit_code = state.exit_code, output = strings.clone(text, allocator)}
 }
 
 /*

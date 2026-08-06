@@ -29,23 +29,23 @@ CHECKS :: []Tool_Check {
 		install = "https://odin-lang.org/docs/install/",
 	},
 	{
-		name = "just",
-		probe_args = {"just", "--version"},
-		required = true,
+		name        = "just",
+		probe_args  = {"just", "--version"},
+		required    = true,
 		// The skeleton's README states 1.32 as the floor; recipes use features from that era.
 		min_version = {1, 32, 0},
-		why = "runs every recipe in the justfile",
-		install = "https://just.systems/",
+		why         = "runs every recipe in the justfile",
+		install     = "https://just.systems/",
 	},
 	{
-		name = "odinfmt",
+		name          = "odinfmt",
 		// odinfmt has no version flag (`[path] [-config] [-stdin] [-w]`), so a bare invocation is
 		// the probe: it prints usage and exits non-zero, which still proves it is installed.
-		probe_args = {"odinfmt"},
-		required = false,
+		probe_args    = {"odinfmt"},
+		required      = false,
 		presence_only = true,
-		why = "only `just format` needs it",
-		install = "build from the ols repo: https://github.com/DanielGavin/ols",
+		why           = "only `just format` needs it",
+		install       = "build from the ols repo: https://github.com/DanielGavin/ols",
 	},
 	{
 		name = "git",
@@ -103,14 +103,7 @@ doctor :: proc() -> int {
 			req := check.min_version
 			if !version_at_least(major, minor, patch, req[0], req[1], req[2]) {
 				failures += 1
-				fmt.eprintfln(
-					"TOO OLD  %-8s %s - need >= %d.%d.%d",
-					check.name,
-					banner,
-					req[0],
-					req[1],
-					req[2],
-				)
+				fmt.eprintfln("TOO OLD  %-8s %s - need >= %d.%d.%d", check.name, banner, req[0], req[1], req[2])
 				fmt.eprintfln("         install: %s", check.install)
 				continue
 			}

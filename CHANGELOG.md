@@ -9,6 +9,14 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+### Changed
+
+- Release assets are archives (`.tar.gz`, `.zip` on Windows) rather than bare binaries. GitHub
+  requires asset names to be unique within a release, so the platform now lives in the archive name
+  and the binary inside is plainly `odin-skel` — nothing to rename after extracting. tar also
+  preserves the executable bit, so `chmod +x` is no longer needed, and the licence travels with the
+  binary.
+
 ### Fixed
 
 - The release workflow no longer targets the retired `macos-13` runner, which sat queued

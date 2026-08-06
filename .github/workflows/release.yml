@@ -26,15 +26,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `asset` must be unique per release - GitHub rejects two assets with the same name - so the
+        # platform lives in the *archive* name and the binary inside is plainly `odin-skel`. That is
+        # what the user ends up with on their PATH, with no renaming step. tar also preserves the
+        # executable bit, so there is no `chmod +x` to explain either.
         include:
           - os: ubuntu-latest
             target: linux-x86_64
             binary: odin-skel.exe
-            asset: odin-skel-linux-x86_64
+            bin_name: odin-skel
+            asset: odin-skel-linux-x86_64.tar.gz
           - os: windows-latest
             target: windows-x86_64
             binary: odin-skel.exe
-            asset: odin-skel-windows-x86_64.exe
+            bin_name: odin-skel.exe
+            asset: odin-skel-windows-x86_64.zip
           # macOS runners are pinned rather than tracking `-latest`, and deliberately to an older
           # release than CI uses. A macOS binary runs on its build version and newer but not older,
           # so `-latest` silently raising the OS baseline of a published binary - which it does when
@@ -46,11 +52,13 @@ jobs:
           - os: macos-15
             target: macos-arm64
             binary: odin-skel.exe
-            asset: odin-skel-macos-arm64
+            bin_name: odin-skel
+            asset: odin-skel-macos-arm64.tar.gz
           - os: macos-15-intel
             target: macos-x86_64
             binary: odin-skel.exe
-            asset: odin-skel-macos-x86_64
+            bin_name: odin-skel
+            asset: odin-skel-macos-x86_64.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -102,12 +110,35 @@ jobs:
             exit 1
           fi
 
+      # The build output is always `odin-skel.exe`, matching the skeleton's own `main.exe` convention
+      # on every platform, so it is renamed here to what the user should actually end up with.
       - name: stage the asset
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist
-          cp "target/release/${{ matrix.binary }}" "dist/${{ matrix.asset }}"
+          mkdir -p dist stage
+          cp "target/release/${{ matrix.binary }}" "stage/${{ matrix.bin_name }}"
+          cp LICENSE stage/
+          cd stage
+          case "${{ matrix.asset }}" in
+            *.zip)    7z a -tzip "../dist/${{ matrix.asset }}" * > /dev/null ;;
+            *.tar.gz) tar czf "../dist/${{ matrix.asset }}" * ;;
+            *)        echo "unhandled archive type: ${{ matrix.asset }}" >&2; exit 1 ;;
+          esac
+
+      # Cheap guard against an archive that is empty, nested one directory too deep, or holding a
+      # binary under the wrong name - all silent failures that only surface when a user unpacks it.
+      - name: verify the archive contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.asset }}" in
+            *.zip)    listing="$(7z l -ba "dist/${{ matrix.asset }}")" ;;
+            *.tar.gz) listing="$(tar tzf "dist/${{ matrix.asset }}")" ;;
+          esac
+          echo "$listing"
+          echo "$listing" | grep -q "${{ matrix.bin_name }}$" \
+            || { echo "archive does not contain ${{ matrix.bin_name }}" >&2; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:

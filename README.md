@@ -105,21 +105,20 @@ Notes:
 `odin-skel` is a single binary that scaffolds a new project. The whole template is compiled into it, so it needs
 no network access, no git clone, and no copy of this repository.
 
-Download the binary for your platform from the
-[latest release](https://github.com/enerqi/odin-lang-skeleton/releases/latest), rename it to `odin-skel`
-(`odin-skel.exe` on Windows) and put it somewhere on your `PATH`.
+Download the archive for your platform from the
+[latest release](https://github.com/enerqi/odin-lang-skeleton/releases/latest) and extract it. Each one contains
+the binary already named `odin-skel` (`odin-skel.exe` on Windows) plus the licence — put the binary somewhere on
+your `PATH`.
 
 | platform | asset |
 | --- | --- |
-| Linux x86-64 | `odin-skel-linux-x86_64` |
-| Windows x86-64 | `odin-skel-windows-x86_64.exe` |
-| macOS Apple silicon | `odin-skel-macos-arm64` |
-| macOS Intel | `odin-skel-macos-x86_64` |
-
-On Linux and macOS the downloaded file needs the executable bit:
+| Linux x86-64 | `odin-skel-linux-x86_64.tar.gz` |
+| Windows x86-64 | `odin-skel-windows-x86_64.zip` |
+| macOS Apple silicon | `odin-skel-macos-arm64.tar.gz` |
+| macOS Intel | `odin-skel-macos-x86_64.tar.gz` |
 
 ```
-chmod +x odin-skel
+tar xzf odin-skel-linux-x86_64.tar.gz     # the executable bit is preserved, no chmod needed
 ```
 
 The binaries are **not code-signed**, so the first run needs an extra step on macOS — Gatekeeper quarantines

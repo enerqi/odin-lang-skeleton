@@ -352,6 +352,73 @@ new dest name="":
 	raise SystemExit(subprocess.run(argv).returncode)
 
 
+# Moves everything under `## [Unreleased]` into a new `## [VERSION] - <today>` heading, leaves a
+# fresh empty Unreleased above it, and fixes the link definitions at the bottom of the file.
+#
+# Edits CHANGELOG.md and stops. It does not commit, stage or tag: an automated tag is fine until the
+# day it fires on the wrong branch, and reviewing the diff before releasing is the point.
+#
+#   just release 0.1.1      # then: review, commit, tag, push
+# ---
+# promote CHANGELOG.md's Unreleased section to a version heading
+[script("python")]
+release version:
+	import datetime, re, sys
+
+	version = r"{{version}}".lstrip("v")
+	if not re.match(r"^\d+\.\d+\.\d+", version):
+		sys.exit("expected a version like 1.2.3, got: " + version)
+
+	path = "CHANGELOG.md"
+	with open(path, encoding="utf-8") as f:
+		lines = f.read().splitlines()
+
+	heading = re.compile(r"^##\s+\[?([^\]\s]+)\]?")
+
+	unreleased = None
+	for i, line in enumerate(lines):
+		m = heading.match(line)
+		if not m:
+			continue
+		if m.group(1) == "Unreleased":
+			unreleased = i
+		elif m.group(1).lstrip("v") == version:
+			sys.exit("CHANGELOG.md already has a '## " + version + "' section")
+	if unreleased is None:
+		sys.exit("no '## [Unreleased]' heading in CHANGELOG.md")
+
+	# Everything from Unreleased up to the next heading is what gets promoted.
+	end = len(lines)
+	for i in range(unreleased + 1, len(lines)):
+		if heading.match(lines[i]):
+			end = i
+			break
+	if not any(l.strip() for l in lines[unreleased + 1:end]):
+		sys.exit("the Unreleased section is empty - nothing to release")
+
+	today = datetime.date.today().isoformat()
+	lines[unreleased + 1:unreleased + 1] = ["", "## [" + version + "] - " + today]
+
+	# Rewrite the link definitions. The repository URL is taken from the existing Unreleased link
+	# rather than hard-coded, so a repository rename does not silently produce dead links.
+	for i, line in enumerate(lines):
+		m = re.match(r"^\[Unreleased\]:\s*(https?://\S+?)/compare/", line)
+		if not m:
+			continue
+		repo = m.group(1)
+		lines[i] = "[Unreleased]: " + repo + "/compare/" + version + "...HEAD"
+		lines.insert(i + 1, "[" + version + "]: " + repo + "/releases/tag/" + version)
+		break
+	else:
+		print("warning: no '[Unreleased]: .../compare/...' link line found; add the links by hand")
+
+	with open(path, "w", encoding="utf-8", newline="\n") as f:
+		f.write("\n".join(lines).rstrip("\n") + "\n")
+
+	print("CHANGELOG.md: Unreleased -> " + version + " (" + today + ")")
+	print("next: review the diff, commit, then `git tag -a " + version + " -m " + version + "` and push")
+
+
 # Prints the CHANGELOG.md section for VERSION, which the release workflow prepends to the release's
 # auto-generated notes. Exits non-zero when there is no matching section: GitHub's generator lists
 # merged pull requests only, so for a repo that pushes straight to master a missing section means a

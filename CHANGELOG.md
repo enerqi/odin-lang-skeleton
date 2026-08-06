@@ -9,7 +9,17 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+### Added
+
+- `just release VERSION` promotes the Unreleased section to a dated version heading and fixes the
+  link definitions. It edits `CHANGELOG.md` and stops — no staging, committing or tagging — and
+  refuses to run twice for a version or when there is nothing to release.
+
 ### Changed
+
+- The release workflow checks that a tag has changelog notes before installing the Odin toolchain,
+  so a missing section fails in seconds rather than after all four platforms have built and
+  uploaded.
 
 - Release assets are archives (`.tar.gz`, `.zip` on Windows) rather than bare binaries. GitHub
   requires asset names to be unique within a release, so the platform now lives in the archive name

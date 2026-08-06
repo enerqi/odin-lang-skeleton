@@ -63,12 +63,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: extractions/setup-just@v4
+
+      # Deliberately before setup-odin, which is the slow step. The release notes are assembled in
+      # the publish job, so a tag with no CHANGELOG.md section used to fail only after all four
+      # platforms had compiled, tested, archived and uploaded - minutes of work to report a missing
+      # heading. Checking here fails within seconds of the job starting instead.
+      # Skipped for workflow_dispatch, where the ref is a branch rather than a version.
+      - name: preflight - the tag has release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: just changelog_section "${GITHUB_REF_NAME}" > /dev/null
+
       - uses: laytan/setup-odin@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release: ${{ env.ODIN_RELEASE }}
-
-      - uses: extractions/setup-just@v4
 
       # A release must not ship a binary whose embedded templates disagree with the tagged tree.
       - name: embed-check

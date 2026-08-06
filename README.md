@@ -151,10 +151,16 @@ either way:
 
 ```
 git checkout master && git merge <branch>   # the tag must include the workflow
+just release 0.1.1                          # CHANGELOG.md: Unreleased -> 0.1.1, dated today
+git commit -am "release 0.1.1"              # review the diff first
 git push origin master
-git tag v0.1.0
-git push origin v0.1.0
+git tag -a 0.1.1 -m 0.1.1
+git push origin 0.1.1
 ```
+
+`just release` only edits `CHANGELOG.md` — it does not stage, commit or tag, so the release stays a decision you
+make after reading the diff. It refuses to run twice for the same version, and refuses when the Unreleased section
+is empty.
 
 Each target runs `embed-check` and the tool's tests, builds with `-define:SKEL_VERSION=0.1.0` (the tag without
 its leading `v`), and asserts the binary reports that exact version before it is published. The workflow can also
@@ -164,13 +170,15 @@ stamped `dev-<sha>` and are not published.
 **Add a `CHANGELOG.md` section before tagging.** The release notes are that section followed by GitHub's
 auto-generated pull-request list. Since most work here lands by pushing to `master` rather than through pull
 requests, the generated half is close to empty, so the changelog is where the actual summary lives. A tag with no
-matching section fails the release rather than publishing empty notes — check what will be used with:
+matching section fails the release rather than publishing empty notes, and that check runs first in every build
+job so it fails in seconds rather than after four platforms have compiled. Preview what will be published with:
 
 ```
-just changelog_section 0.1.0
+just changelog_section 0.1.1
 ```
 
-Move the `## [Unreleased]` entries into a new `## [x.y.z] - YYYY-MM-DD` heading as part of the release commit.
+Write entries under `## [Unreleased]` as you make each change; `just release` promotes them to a version heading
+when you are ready.
 
 <!-- <<< skeleton-only -->
 

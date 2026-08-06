@@ -12,16 +12,38 @@ Template :: struct {
 }
 
 /*
-Strip `# >>> skeleton-only` ... `# <<< skeleton-only` blocks from the justfile.
+Reduce a line to its marker text, or "" when it is not a marker.
 
-Recipes inside those markers maintain the skeleton itself (scaffolding, the snippet and embed
-generators, building this tool) and are meaningless in a generated project.
+Two spellings are recognised so the same mechanism works in both file types the skeleton strips:
 
-Other marker blocks - `snippet-exclude` today - are kept, but their marker comment lines are dropped
+	# >>> skeleton-only              justfile - a normal comment
+	<!-- >>> skeleton-only -->       README.md - an HTML comment, invisible when the markdown renders
+
+Markdown cannot use the `#` form: a line starting with `#` is a heading, so the marker would show up
+as a title on the repository's front page.
+*/
+marker_text :: proc(trimmed: string) -> string {
+	if strings.has_prefix(trimmed, "# ") {
+		return strings.trim_space(trimmed[2:])
+	}
+	if strings.has_prefix(trimmed, "<!--") && strings.has_suffix(trimmed, "-->") {
+		return strings.trim_space(trimmed[4:len(trimmed) - 3])
+	}
+	return ""
+}
+
+/*
+Strip `>>> skeleton-only` ... `<<< skeleton-only` blocks.
+
+Content inside those markers maintains the skeleton itself - the scaffolding, snippet and embed
+recipes, and the notes on installing and releasing this tool - and is meaningless once the file has
+been copied into a real project.
+
+Other marker blocks - `snippet-exclude` today - keep their body, but their marker lines are dropped
 because they only mean something in the skeleton repo.
 
-This must stay behaviourally identical to the `strip_skeleton_only` helper that `just new` used
-before the cutover; the two were compared on the real justfile.
+Applied to the justfile and to README.md. The README needed it because it is copied verbatim and was
+documenting recipes (`just new`, `just snippets`) that the stripped justfile no longer contains.
 */
 strip_skeleton_only :: proc(text: string, allocator := context.allocator) -> string {
 	b := strings.builder_make(allocator)
@@ -38,13 +60,13 @@ strip_skeleton_only :: proc(text: string, allocator := context.allocator) -> str
 			line, rest = rest, ""
 		}
 
-		trimmed := strings.trim_space(line)
+		marker := marker_text(strings.trim_space(line))
 		switch {
-		case trimmed == "# >>> skeleton-only":
+		case marker == ">>> skeleton-only":
 			skip = true
-		case trimmed == "# <<< skeleton-only":
+		case marker == "<<< skeleton-only":
 			skip = false
-		case strings.has_prefix(trimmed, "# >>> "), strings.has_prefix(trimmed, "# <<< "):
+		case strings.has_prefix(marker, ">>> "), strings.has_prefix(marker, "<<< "):
 		// A different marker block: drop the marker line, keep the body.
 		case !skip:
 			strings.write_string(&b, line)

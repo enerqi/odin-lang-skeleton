@@ -47,7 +47,10 @@ new :: proc(dest: string, name: string) -> int {
 		owned_rel, owned_content: bool
 
 		switch {
-		case tmpl.path == "justfile":
+		// Both carry `skeleton-only` marker blocks: the justfile's recipes that only maintain this
+		// repo, and the README sections documenting those recipes plus how to install and release
+		// odin-skel itself.
+		case tmpl.path == "justfile", tmpl.path == "README.md":
 			out_rel, content = tmpl.path, strip_skeleton_only(tmpl.data)
 			owned_content = true
 		case tmpl.path == "LICENSE":

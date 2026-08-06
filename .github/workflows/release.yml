@@ -113,6 +113,15 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # Generated after the download so one file covers every target. The binaries are unsigned, so
+      # this is the only way a user can check that what they downloaded is what CI built.
+      - name: checksums
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
       - name: list assets
         run: ls -l dist
 

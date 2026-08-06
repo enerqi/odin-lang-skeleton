@@ -12,16 +12,42 @@ VERSION :: #config(SKEL_VERSION, "dev")
 // added here but the dispatch below forgets it (see tools/DESIGN.md, Open items / Loop guard).
 OWNED_COMMANDS :: []string{"new", "version", "doctor", "help"}
 
-USAGE :: `odin-skel - project scaffolding for the Odin skeleton
+HOMEPAGE :: "https://github.com/enerqi/odin-lang-skeleton"
+
+// A released binary is downloaded on its own, with no repository and no README next to it, so this
+// has to answer "what is this and what do I type" without anything else to hand.
+USAGE :: `odin-skel - scaffold a new Odin project
+
+Creates a ready-to-build Odin project: a justfile with debug/release build tiers, editor config,
+.gitignore/.gitattributes, and Sublime Text build systems. The project template is compiled into
+this binary, so scaffolding needs no network access and no git clone.
 
 Usage:
-  odin-skel <command> [args...]
+  odin-skel <command> [arguments]
 
 Commands:
-  new <dest> [name]  scaffold a project into dest (must be empty apart from .git)
-  doctor             check the toolchain (odin, just, odinfmt, git) and report what is missing
-  version            print the binary version
-  help               print this message
+  new <dest> [name]   Scaffold a project into <dest>. The directory must not exist, or must be
+                      empty apart from .git. [name] defaults to the directory's own name and is
+                      used for the .sublime-project file.
+  doctor              Check for odin, just, odinfmt and git; report what is missing, what is too
+                      old, and where to get it.
+  version             Print this binary's version.
+  help                Print this message.
+
+Examples:
+  odin-skel new ../my-game            scaffold into ../my-game, project name "my-game"
+  odin-skel new ../dir my-game        scaffold into ../dir, but name the project "my-game"
+  odin-skel new . my-game             scaffold into the current directory (must be empty; a name
+                                      is needed here because "." is not one)
+  odin-skel doctor                    check the toolchain before starting
+
+After scaffolding, the project is driven by just (https://just.systems):
+  just run          build and run a debug build
+  just test         run the tests
+  just lint         type check, vet and style check
+  just --list       every available recipe
+
+Homepage: ` + HOMEPAGE + `
 `
 
 main :: proc() {
@@ -37,6 +63,10 @@ run :: proc() -> int {
 
 	switch args[0] {
 	case "version":
+		fmt.printfln("odin-skel %s", VERSION)
+		return 0
+	case "--version", "-V":
+		// Not in OWNED_COMMANDS: flags are never forwarded to `just`, only bare subcommands are.
 		fmt.printfln("odin-skel %s", VERSION)
 		return 0
 	case "doctor":

@@ -5,6 +5,20 @@ A minimal project skeleton for writing programs in the [Odin programming languag
 The build artifacts are output under the `target` directory (similar to [Rust](https://www.rust-lang.org/) projects
 built using `cargo`).
 
+<!-- >>> skeleton-only -->
+## Quick start
+
+Either clone this repository and work in it directly, or use the `odin-skel` binary to stamp out a new project
+without cloning anything — see [Installing odin-skel](#installing-odin-skel).
+
+```
+odin-skel new ../my-project     # or: git clone this repo and `just new ../my-project`
+cd ../my-project
+just run
+```
+
+<!-- <<< skeleton-only -->
+
 A `justfile` is part of this opinionated setup and you may need to edit the tasks as new packages are added in
 sub-directories. [Just >=1.32](https://just.systems/) is a CLI task runner that you *need to install*. Run any task
 with `just TASK`:
@@ -50,13 +64,22 @@ compile entirely (needs a prior `run_*` of the same profile):
 * `just clean` — wipe the `target` directory
 * `just mktarget_dirs` — create the `target` directory tree (auto-called by the `run_*` tasks)
 
-**Scaffolding & skeleton upkeep:**
+**Editor setup:**
 
-* `just new DEST [NAME]` — copy this skeleton into a new project (see [Creating a new project](#creating-a-new-project))
 * `just ols-config` — (re)generate `ols.json` (see [Language Server Configuration](#language-server-configuration))
-* `just snippets` / `just snippets-check` — (re)generate / verify the editor snippets (see the Sublime section)
 * `just install-sublime` — install the snippets + build systems into Sublime Text's global config (see the Sublime section)
 * `just sublime-build-init` — add a project-local build-system stub to the `.sublime-project` (see the Sublime section)
+
+<!-- >>> skeleton-only -->
+**Skeleton upkeep** (these recipes maintain the skeleton repository itself and are stripped from a
+scaffolded project):
+
+* `just new DEST [NAME]` — copy this skeleton into a new project (see [Creating a new project](#creating-a-new-project))
+* `just snippets` / `just snippets-check` — (re)generate / verify the editor snippets (see the Sublime section)
+* `just embed` / `just embed-check` — (re)generate / verify the template list compiled into `odin-skel`
+* `just build_skel` / `just build_skel_release` / `just lint_skel` / `just test_skel` — build, lint and test the
+  `odin-skel` binary
+<!-- <<< skeleton-only -->
 
 Notes:
 
@@ -76,6 +99,69 @@ Notes:
   shell-agnostic: the recipes invoke `odin`, `just` and `odinfmt` directly rather than leaning on shell builtins.
 
 
+<!-- >>> skeleton-only -->
+## Installing odin-skel
+
+`odin-skel` is a single binary that scaffolds a new project. The whole template is compiled into it, so it needs
+no network access, no git clone, and no copy of this repository.
+
+Download the binary for your platform from the
+[latest release](https://github.com/enerqi/odin-lang-skeleton/releases/latest), rename it to `odin-skel`
+(`odin-skel.exe` on Windows) and put it somewhere on your `PATH`.
+
+| platform | asset |
+| --- | --- |
+| Linux x86-64 | `odin-skel-linux-x86_64` |
+| Windows x86-64 | `odin-skel-windows-x86_64.exe` |
+| macOS Apple silicon | `odin-skel-macos-arm64` |
+| macOS Intel | `odin-skel-macos-x86_64` |
+
+On Linux and macOS the downloaded file needs the executable bit:
+
+```
+chmod +x odin-skel
+```
+
+The binaries are **not code-signed**, so the first run needs an extra step on macOS — Gatekeeper quarantines
+anything downloaded from a browser:
+
+```
+xattr -d com.apple.quarantine odin-skel
+```
+
+Windows SmartScreen may show a "Windows protected your PC" prompt for the same reason; *More info → Run anyway*.
+Verify what you downloaded against `SHA256SUMS` on the release page if you would rather not take that on trust.
+
+Then:
+
+```
+odin-skel doctor      # check odin / just / odinfmt / git are present and new enough
+odin-skel new ../my-project
+odin-skel help        # full usage
+```
+
+`odin-skel` only scaffolds. The generated project is driven by `just`, and `odin-skel` does not need to stay
+installed afterwards.
+
+### Cutting a release
+
+Releases are built by `.github/workflows/release.yml` on any `v*` tag, for all four targets:
+
+```
+git checkout master && git merge <branch>   # the tag must include the workflow
+git push origin master
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Each target runs `embed-check` and the tool's tests, builds with `-define:SKEL_VERSION=0.1.0` (the tag without
+its leading `v`), and asserts the binary reports that exact version before it is published. The workflow can also
+be run from the Actions tab via *workflow_dispatch* to exercise the matrix without tagging: those builds are
+stamped `dev-<sha>` and are not published.
+
+<!-- <<< skeleton-only -->
+
+<!-- >>> skeleton-only -->
 ## Creating a new project
 
 `just new DEST [NAME]` copies this skeleton into a new or empty directory `DEST` (a `.git/` already present is fine —
@@ -94,6 +180,7 @@ The `.sublime-snippet` files are copied so you stay aware of them, but treat the
 generator that keeps them in sync stays behind — see the Sublime section).
 
 
+<!-- <<< skeleton-only -->
 ## [Sublime Text](https://www.sublimetext.com/) editor specific files
 
 The `OdinJustTarget.sublime-build` file is an example [sublime build file](https://www.sublimetext.com/docs/build_systems.html). Delete it if no developer is using sublime text.
@@ -128,9 +215,10 @@ If instead you want a **project-local** build system — one that only shows up 
 global install — Sublime reads it from the `"build_systems"` key inside the `.sublime-project` file (loaded
 automatically when you open the project). `just sublime-build-init` seeds that key with one working `just run` build plus
 commented-out variant examples (release / test / lint / current-file) for you to extend; it refuses if the project
-file already has a `build_systems` entry. This recipe is kept by `just new`, so a freshly scaffolded project can add
-its own build straight away. (`.sublime-project` is loose JSON — `//` comments and trailing commas are allowed.)
+file already has a `build_systems` entry. (`.sublime-project` is loose JSON — `//` comments and trailing commas are
+allowed.)
 
+<!-- >>> skeleton-only -->
 `just new` copies the `.sublime-snippet` files into a new project so you stay aware of them, but strips the
 snippet-generator recipes from the copied justfile (they only maintain this skeleton) — once detached, treat the copied
 snippets as a one-off starting point rather than something kept in sync.
@@ -149,6 +237,7 @@ markers in the `justfile` are stripped from the Justfile snippet. Two marker nam
 `new`, `snippets` — meaningless outside this repo, so `just new` also drops them) and `snippet-exclude` (e.g.
 `sublime-build-init` — kept by `just new` but left out of the snippet because it contains literal `$` that Sublime would
 otherwise parse as snippet fields).
+<!-- <<< skeleton-only -->
 
 
 ## Language Server Configuration

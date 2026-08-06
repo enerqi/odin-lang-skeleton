@@ -186,3 +186,58 @@ test_ensure_directory_rejects_a_file_in_the_way :: proc(t: ^testing.T) {
 
 	testing.expect(t, ensure_directory(blocker) != nil, "a file in the way must not be reported as success")
 }
+
+// Markdown cannot use the justfile's `# >>>` spelling: a leading `#` is a heading, so the marker
+// would render as a title on the repository front page. HTML comments are invisible instead.
+@(test)
+test_strip_handles_html_comment_markers :: proc(t: ^testing.T) {
+	input := `keep this
+
+<!-- >>> skeleton-only -->
+drop this
+<!-- <<< skeleton-only -->
+
+keep this too
+`
+	got := strip_skeleton_only(input)
+	defer delete(got)
+
+	testing.expect(t, strings.contains(got, "keep this"))
+	testing.expect(t, strings.contains(got, "keep this too"))
+	testing.expect(t, !strings.contains(got, "drop this"), "skeleton-only markdown survived")
+	testing.expect(t, !strings.contains(got, "skeleton-only"), "marker line survived")
+}
+
+// A `#` heading must not be mistaken for a marker comment now that markdown is stripped too.
+@(test)
+test_strip_keeps_markdown_headings :: proc(t: ^testing.T) {
+	got := strip_skeleton_only("# Title\n\n## Section\n\ntext\n")
+	defer delete(got)
+	testing.expect(t, strings.contains(got, "# Title"), "a markdown H1 was eaten")
+	testing.expect(t, strings.contains(got, "## Section"))
+}
+
+// The real README must lose its skeleton-only sections and keep everything a project still needs.
+@(test)
+test_strip_on_the_real_readme :: proc(t: ^testing.T) {
+	source := ""
+	for tmpl in TEMPLATES {
+		if tmpl.path == "README.md" {
+			source = tmpl.data
+			break
+		}
+	}
+	testing.expect(t, source != "", "README.md missing from TEMPLATES - run `just embed`")
+
+	got := strip_skeleton_only(source)
+	defer delete(got)
+
+	// "just new", "just snippets" and "odin-skel" name recipes and a binary that a scaffolded
+	// project does not have, so any mention of them is a leak wherever it appears in the file.
+	for gone in ([]string{"Installing odin-skel", "Cutting a release", "just new", "just embed", "just snippets", "odin-skel", "skeleton-only"}) {
+		testing.expectf(t, !strings.contains(got, gone), "skeleton-only README content %q leaked", gone)
+	}
+	for kept in ([]string{"just run", "just lint", "Language Server Configuration"}) {
+		testing.expectf(t, strings.contains(got, kept), "README content %q was stripped", kept)
+	}
+}

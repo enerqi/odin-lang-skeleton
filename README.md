@@ -145,7 +145,10 @@ installed afterwards.
 
 ### Cutting a release
 
-Releases are built by `.github/workflows/release.yml` on any `v*` tag, for all four targets:
+Releases are built by `.github/workflows/release.yml` on any version tag, for all four targets. Both `v0.1.0` and
+a bare `0.1.0` work — `v` is the more common git convention, but [SemVer](https://semver.org/) is explicit that the
+`v` belongs to the tag rather than the version, so it is stripped before stamping and the binary reports `0.1.0`
+either way:
 
 ```
 git checkout master && git merge <branch>   # the tag must include the workflow

@@ -2,8 +2,15 @@ name: release
 
 on:
   push:
+    # Both spellings are accepted. `v1.2.3` is the common git convention (git itself, the Linux
+    # kernel, and Go where the prefix is mandatory), but SemVer is explicit that `v1.2.3` is not a
+    # semantic version - the `v` belongs to the tag, not the version - and plenty of projects tag
+    # bare, Rust among them. Requiring one spelling means tagging the other does nothing at all, with
+    # no error to explain the silence, so both trigger and the `v` is stripped for the version stamp.
+    # The patterns are anchored on a digit so an unrelated tag like `verify-something` is ignored.
     tags:
-      - "v*"
+      - "v[0-9]*"
+      - "[0-9]*"
   # Lets the matrix be exercised without cutting a tag; the upload step is skipped for these.
   workflow_dispatch:
 
@@ -105,7 +112,9 @@ jobs:
   publish:
     name: publish release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Any tag, not just the `v` spelling - the trigger already restricts which tags get here, and
+    # gating on `refs/tags/v` would build a bare `1.2.3` tag and then silently never publish it.
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

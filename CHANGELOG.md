@@ -9,6 +9,13 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+### Fixed
+
+- The release workflow no longer targets the retired `macos-13` runner, which sat queued
+  indefinitely and blocked the whole release because publishing waits on every target. macOS builds
+  are now pinned to `macos-15` / `macos-15-intel` rather than tracking `-latest`, so a published
+  binary's minimum macOS version cannot rise without a commit.
+
 ## [0.1.0] - 2026-08-06
 
 First release of `odin-skel`, the binary that scaffolds a project without cloning this repository.

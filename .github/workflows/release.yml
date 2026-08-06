@@ -35,13 +35,19 @@ jobs:
             target: windows-x86_64
             binary: odin-skel.exe
             asset: odin-skel-windows-x86_64.exe
-          # macos-latest is arm64; macos-13 is the last Intel runner, kept so x86_64 Macs are
-          # covered. Both are free on public repositories.
-          - os: macos-latest
+          # macOS runners are pinned rather than tracking `-latest`, and deliberately to an older
+          # release than CI uses. A macOS binary runs on its build version and newer but not older,
+          # so `-latest` silently raising the OS baseline of a published binary - which it does when
+          # GitHub migrates the label - would drop users with no commit to point at.
+          #
+          # macos-13 was the Intel runner here until it was retired: the job then sat queued forever
+          # and, because publish needs the whole matrix, blocked the release entirely. `macos-15-intel`
+          # replaces it and is a standard runner, so it stays free on public repositories.
+          - os: macos-15
             target: macos-arm64
             binary: odin-skel.exe
             asset: odin-skel-macos-arm64
-          - os: macos-13
+          - os: macos-15-intel
             target: macos-x86_64
             binary: odin-skel.exe
             asset: odin-skel-macos-x86_64

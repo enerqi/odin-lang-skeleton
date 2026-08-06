@@ -9,25 +9,41 @@ A `justfile` is part of this opinionated setup and you may need to edit the task
 sub-directories. [Just >=1.32](https://just.systems/) is a CLI task runner that you *need to install*. Run any task
 with `just TASK`:
 
-**Build & run** — `odin run` always recompiles the whole package (Odin has no build cache / incremental compilation):
+**Build & run** — `odin run` always recompiles the whole package (Odin has no build cache / incremental compilation).
+Each profile writes to its own `target/` sub-directory, so switching between them never clobbers another build:
 
-* `just run` or `just run_debug` — debug build, then run
-* `just run_fastdebug` — debug build with optimizations
-* `just run_release` — optimized build
+| task | optimization | debug info | output |
+| --- | --- | --- | --- |
+| `just run` / `just run_debug` | `-o:none` (the `-debug` default) | yes | `target/debug/` |
+| `just run_fast_debug` | `-o:minimal` | yes | `target/fast_debug/` |
+| `just run_release_debug` | `-o:speed` | yes | `target/release_debug/` |
+| `just run_release` | `-o:speed` | no | `target/release/` |
+| `just run_release_nochecks` | `-o:speed`, no runtime checks | no | `target/release_nochecks/` |
+
+* `run_fast_debug` trades a little step-through fidelity for a much faster binary; still quick to compile
+* `run_release_debug` is release codegen with symbols kept — for profiling and for bugs that only appear optimized
+* `run_release_nochecks` additionally compiles out `-no-bounds-check`, `-disable-assert` and `-no-type-assert`. Those
+  checks are what turn a memory-corrupting bug into a clean panic, so measure the gain before adopting it and keep a
+  checked build in your test matrix
 * `just diagnose` — debug build with verbose compiler timing / diagnostics
 
 **Re-run without recompiling** — runs the `-keep-executable` binary left by the matching `run_*` task, skipping the
 compile entirely (needs a prior `run_*` of the same profile):
 
 * `just rerun` or `just rerun_debug`
-* `just rerun_fastdebug`
+* `just rerun_fast_debug`
+* `just rerun_release_debug`
 * `just rerun_release`
+* `just rerun_release_nochecks`
 
 **Quality:**
 
 * `just lint` — type checking, vet warnings, strict style. No code generation
 * `just format` — runs `odinfmt -w .` over the whole tree
 * `just test` / `just test1 NAME` — run all tests / one named test
+* `just sanitize [KIND]` / `just test_sanitize [KIND]` — run the program / the tests under a sanitizer. `KIND` is
+  `address` (default), `memory` or `thread`. Only `address` is widely supported; `memory` and `thread` need a
+  clang-ish toolchain and are unavailable on some platforms (notably Windows/MSVC)
 
 **Housekeeping:**
 

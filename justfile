@@ -304,6 +304,15 @@ test_skel *args: mktarget_dirs
 build_skel *args: mktarget_dirs
 	odin build tools/skel -debug -out:target/debug/{{skel_name}} {{args}}
 
+# What CI publishes: optimized, no debug info, and stamped with the tag it was built from.
+# Deliberately NOT -microarch:native - a published binary has to run on any machine of that
+# architecture, not just the builder.
+#   just build_skel_release -define:SKEL_VERSION=1.2.3
+# ---
+# build an optimized odin-skel into target/release/
+build_skel_release *args: mktarget_dirs
+	odin build tools/skel -o:speed -out:target/release/{{skel_name}} {{args}}
+
 # Thin wrapper: the scaffolding logic lives in the odin-skel binary and nowhere else, so the two
 # cannot drift (see tools/DESIGN.md, Decision 2). Build the binary first with `just build_skel`.
 # Usage:  just new ../my-new-project   or   just new ../dir projname
@@ -343,8 +352,11 @@ embed-check:
 _embed mode:
 	import subprocess, sys, os, difflib
 
-	# Mirrors `new`'s exclusion: tools/ is the skeleton's own tooling, not part of the template.
-	EXCLUDED_PREFIXES = ("tools/",)
+	# Skeleton-only paths, never part of a scaffolded project:
+	#   tools/    the odin-skel source and its design notes
+	#   .github/  CI that runs embed-check / lint_skel / test_skel, all meaningless in a project
+	# A project-level CI template would be a separate file, not this one - see tools/DESIGN.md.
+	EXCLUDED_PREFIXES = ("tools/", ".github/")
 	GENERATED = os.path.join("tools", "skel", "templates.odin")
 
 	files = subprocess.run(

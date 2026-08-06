@@ -6,8 +6,9 @@ require cloning this repository by hand.
 Nothing here is built yet. This file records the decisions that were settled up front because they
 constrain everything downstream; the open items are listed at the end.
 
-Status: **accepted.** Phases 1 and 2 are implemented — `version`, `doctor`, and `new` with embedded
-templates. Phase 3 (CI and releases) and phase 4 (update check, `--from-git`, self-update) are not.
+Status: **accepted.** Phases 1–3 are implemented — `version`, `doctor`, `new` with embedded templates,
+and CI plus tagged releases for four targets. Phase 4 (update check, `--from-git`, self-update) is
+not.
 
 
 ## Decision 1 — templates are embedded in the binary
@@ -132,10 +133,17 @@ The tool's source lives under `tools/`. The repository root remains a working Od
 ├── justfile
 ├── odinfmt.json
 ├── .sublime/
+├── .github/           <- NOT part of the template: CI for the skeleton itself
+│   └── workflows/
 └── tools/             <- NOT part of the template
     ├── DESIGN.md      <- this file
     └── skel/          <- odin-skel source
 ```
+
+`.github/` is excluded for the same reason as `tools/`: its workflows run `embed-check`, `lint_skel`
+and `test_skel`, none of which exist in a scaffolded project, so inheriting them would hand every new
+project a red CI badge on day one. Shipping projects a *useful* starter workflow is worth doing, but
+it is a different file with different contents — see Open items.
 
 ### Why
 
@@ -202,3 +210,19 @@ Not decided; deliberately deferred.
   command
 * minimum `just` version to enforce. The README states 1.32; `just --version` prints `just 1.46.0`, so
   parsing is trivial
+
+* a starter CI workflow *for scaffolded projects*. The skeleton's own `.github/` is excluded from the
+  template because it checks skeleton-only things, so a generated project currently gets no CI at all.
+  A small `lint` + `test` workflow would be a separate template file
+
+* **the copied README documents recipes the copied justfile does not have.** `just new`,
+  `just snippets` and `just snippets-check` are inside the `# >>> skeleton-only` markers and are
+  stripped from a generated justfile, but README.md is copied verbatim and still lists them under
+  "Scaffolding & skeleton upkeep". This predates the tool and is a template bug, not a tool bug:
+  either README.md needs the same marker treatment the justfile gets, or that section needs to move
+  somewhere that is not copied
+
+* pinning the Odin toolchain. CI uses `release: nightly` because the skeleton needs the `core:os`
+  process API that arrived when os2 was merged in, which may be newer than the latest tagged Odin
+  release. Nightly means CI can break from upstream changes with no commit here; worth revisiting once
+  a release is known to carry that rewrite

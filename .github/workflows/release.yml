@@ -1,0 +1,123 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Lets the matrix be exercised without cutting a tag; the upload step is skipped for these.
+  workflow_dispatch:
+
+permissions:
+  contents: write # required to create the release and attach binaries
+
+env:
+  ODIN_RELEASE: nightly # see .github/workflows/ci.yml for why this is not `latest`
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+            binary: odin-skel.exe
+            asset: odin-skel-linux-x86_64
+          - os: windows-latest
+            target: windows-x86_64
+            binary: odin-skel.exe
+            asset: odin-skel-windows-x86_64.exe
+          # macos-latest is arm64; macos-13 is the last Intel runner, kept so x86_64 Macs are
+          # covered. Both are free on public repositories.
+          - os: macos-latest
+            target: macos-arm64
+            binary: odin-skel.exe
+            asset: odin-skel-macos-arm64
+          - os: macos-13
+            target: macos-x86_64
+            binary: odin-skel.exe
+            asset: odin-skel-macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release: ${{ env.ODIN_RELEASE }}
+
+      - uses: extractions/setup-just@v4
+
+      # A release must not ship a binary whose embedded templates disagree with the tagged tree.
+      - name: embed-check
+        run: just embed-check
+
+      - name: test odin-skel
+        run: just test_skel
+
+      # A tag build reports the tag without its leading `v`; a manual run is stamped with the short
+      # SHA so a dispatched artifact can never be mistaken for a release.
+      - name: resolve version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="dev-${GITHUB_SHA::7}"
+          fi
+          echo "SKEL_VERSION=$version" >> "$GITHUB_ENV"
+          echo "building version $version"
+
+      # Built through the recipe rather than a bare `odin build` so what CI ships and what a
+      # developer can reproduce locally cannot drift apart.
+      - name: build
+        run: just build_skel_release -define:SKEL_VERSION=${{ env.SKEL_VERSION }}
+
+      # Guards against the stamp silently not taking effect - a release that reports "dev" would be
+      # useless for bug reports and impossible to tell apart from a local build.
+      - name: verify the stamped version
+        shell: bash
+        run: |
+          set -euo pipefail
+          reported="$(./target/release/${{ matrix.binary }} version)"
+          expected="odin-skel $SKEL_VERSION"
+          echo "reported: $reported"
+          if [ "$reported" != "$expected" ]; then
+            echo "expected: $expected" >&2
+            exit 1
+          fi
+
+      - name: stage the asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "target/release/${{ matrix.binary }}" "dist/${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: list assets
+        run: ls -l dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

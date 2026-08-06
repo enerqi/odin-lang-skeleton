@@ -276,9 +276,33 @@ ols-config:
 
 
 # >>> skeleton-only
-# Recipes below operate on the skeleton repo itself (scaffold a new project, regenerate the editor
-# snippets). They are stripped from the Just-Odin.sublime-snippet because they are meaningless once
-# the justfile is dropped into a real project. Leave the `# >>> / # <<< skeleton-only` markers in place.
+# Recipes below operate on the skeleton repo itself (scaffold a new project, build the odin-skel
+# tool, regenerate the editor snippets). They are stripped from the Just-Odin.sublime-snippet because
+# they are meaningless once the justfile is dropped into a real project. Leave the
+# `# >>> / # <<< skeleton-only` markers in place.
+
+# Declared here rather than beside main_name / test_main_name at the top of the file so they are
+# stripped along with the rest of this block - a scaffolded project has no tools/skel to build.
+skel_name := "odin-skel.exe"
+skel_test_name := "test-odin-skel.exe"
+
+# `odin check .` only covers the root package, so tools/skel needs its own lint pass or it drifts
+# unchecked. Same flags as the root `lint` recipe.
+# ---
+# lint the odin-skel tool source
+lint_skel *args:
+	odin check tools/skel -vet -vet-cast -strict-style -vet-tabs {{args}}
+
+# run the odin-skel tool's tests
+test_skel *args: mktarget_dirs
+	odin test tools/skel -debug -out:target/debug/{{skel_test_name}} {{args}}
+
+# The version is stamped in at build time; an unstamped build reports "dev". Release builds pass
+# `-define:SKEL_VERSION=x.y.z` (see tools/DESIGN.md).
+# ---
+# build the odin-skel tool into target/debug/
+build_skel *args: mktarget_dirs
+	odin build tools/skel -debug -out:target/debug/{{skel_name}} {{args}}
 
 # Dotfiles included (.gitignore, .editorconfig, .sublime/*, etc). Only git-tracked files are copied,
 # so build artifacts, .git and untracked local files (e.g. .claude) are left behind. The

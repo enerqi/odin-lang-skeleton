@@ -6,7 +6,8 @@ require cloning this repository by hand.
 Nothing here is built yet. This file records the decisions that were settled up front because they
 constrain everything downstream; the open items are listed at the end.
 
-Status: **accepted, unimplemented.**
+Status: **accepted.** Phases 1 and 2 are implemented — `version`, `doctor`, and `new` with embedded
+templates. Phase 3 (CI and releases) and phase 4 (update check, `--from-git`, self-update) are not.
 
 
 ## Decision 1 — templates are embedded in the binary
@@ -104,15 +105,21 @@ The binary is the right owner rather than the recipe because it is the artifact 
 this repo will actually run. A recipe-owned implementation would make `just new` the reference and the
 binary the copy, which inverts the dependency: the binary would then need its own port anyway.
 
-### Migration
+### Migration — done
 
-Until `odin-skel new` works, the Python recipe stays as-is and remains the reference. The cutover is a
-single phase-2 step, and it is not complete until the Python body is deleted rather than left dormant
-next to the shim.
+The cutover happened in phase 2. `just new` is now a shim that execs `target/debug/odin-skel new` and
+propagates its exit code; the Python body was deleted rather than left dormant beside it, so there is
+no second implementation to drift.
 
-After cutover, `just new` gains a hard dependency on the binary being installed. This is acceptable —
-`just new` only runs inside a clone of this repo, where `just build-skel` can produce the binary — but
-the recipe must fail with an actionable message rather than a bare "command not found".
+The port was validated by running both implementations into separate directories and diffing the
+results: byte-identical across all thirteen files, including the stripped justfile and the generated
+Zlib licence. That comparison is no longer possible now the Python is gone, which is precisely why it
+was done at the moment of cutover.
+
+`just new` now depends on the binary existing. That is acceptable — it only runs inside a clone of
+this repo, where `just build_skel` produces it — and the shim checks for the file first so the failure
+is `missing target/debug/odin-skel.exe - run 'just build_skel' first` rather than a bare
+"command not found".
 
 
 ## Decision 3 — repository layout (a): the repo root stays the template

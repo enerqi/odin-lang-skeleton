@@ -304,96 +304,93 @@ test_skel *args: mktarget_dirs
 build_skel *args: mktarget_dirs
 	odin build tools/skel -debug -out:target/debug/{{skel_name}} {{args}}
 
-# Dotfiles included (.gitignore, .editorconfig, .sublime/*, etc). Only git-tracked files are copied,
-# so build artifacts, .git and untracked local files (e.g. .claude) are left behind. The
-# `.sublime-project` file is renamed to the project name (defaults to the dest directory name). The
-# justfile is emitted without its `# >>> skeleton-only` recipes (new / snippets) since they only
-# maintain this skeleton; the *.sublime-snippet files ARE copied so the snippets are discoverable
-# (install them once, globally — see the README). The skeleton's own Unlicense LICENSE is replaced
-# with a fresh Zlib LICENSE (matching the Odin project's license).
+# Thin wrapper: the scaffolding logic lives in the odin-skel binary and nowhere else, so the two
+# cannot drift (see tools/DESIGN.md, Decision 2). Build the binary first with `just build_skel`.
 # Usage:  just new ../my-new-project   or   just new ../dir projname
 # ---
 # copy this skeleton into a new or empty directory
 [script("python")]
 new dest name="":
-	import os, sys, shutil, subprocess, datetime
-	dest = r"{{dest}}"
-	if os.path.isdir(dest) and [e for e in os.listdir(dest) if e != ".git"]:
-		sys.exit("refusing: '" + dest + "' exists and is not empty (ignoring .git)")
-	if os.path.isfile(dest):
-		sys.exit("refusing: '" + dest + "' is a file")
+	import os, subprocess, sys
 
-	def strip_skeleton_only(text):
-		# drop whole `# >>> skeleton-only` blocks; keep the content of other marker blocks (e.g.
-		# snippet-exclude) but drop their now-irrelevant marker comment lines.
-		out, skip = [], False
-		for line in text.splitlines(keepends=True):
-			s = line.strip()
-			if s == "# >>> skeleton-only":
-				skip = True
-				continue
-			if s == "# <<< skeleton-only":
-				skip = False
-				continue
-			if s.startswith("# >>> ") or s.startswith("# <<< "):
-				continue
-			if not skip:
-				out.append(line)
-		return "".join(out).rstrip("\n") + "\n"
+	binary = os.path.join("target", "debug", "{{skel_name}}")
+	if not os.path.isfile(binary):
+		sys.exit("missing " + binary + " - run `just build_skel` first")
 
-	def zlib_license():
-		year = datetime.date.today().year
-		return (
-			"Copyright (c) {year}\n\n"
-			"This software is provided 'as-is', without any express or implied\n"
-			"warranty. In no event will the authors be held liable for any damages\n"
-			"arising from the use of this software.\n\n"
-			"Permission is granted to anyone to use this software for any purpose,\n"
-			"including commercial applications, and to alter it and redistribute it\n"
-			"freely, subject to the following restrictions:\n\n"
-			"1. The origin of this software must not be misrepresented; you must not\n"
-			"   claim that you wrote the original software. If you use this software\n"
-			"   in a product, an acknowledgment in the product documentation would be\n"
-			"   appreciated but is not required.\n\n"
-			"2. Altered source versions must be plainly marked as such, and must not be\n"
-			"   misrepresented as being the original software.\n\n"
-			"3. This notice may not be removed or altered from any source distribution.\n"
-		).format(year=year)
+	argv = [binary, "new", r"{{dest}}"]
+	name = r"{{name}}"
+	if name:
+		argv.append(name)
+	raise SystemExit(subprocess.run(argv).returncode)
 
-	# Paths that belong to the skeleton's own tooling rather than to the template. `tools/` holds the
-	# `odin-skel` binary's source and design docs (see tools/DESIGN.md) - a scaffolded project must not
-	# inherit it. Keep in sync with tools/DESIGN.md's "Repository layout" section.
+
+# The tool embeds the template with `#load`, so tools/skel/templates.odin is a second listing of the
+# repo's own files and can go stale the moment one is added or removed. Same drift problem the
+# snippets have, so it gets the same treatment: a generator plus a --check mode for CI.
+# Run after adding, removing or renaming a template file.
+# ---
+# (re)generate tools/skel/templates.odin from the tracked template files
+embed:
+	just _embed write
+
+# Non-zero exit + diff if stale. Wire into pre-commit / CI alongside `snippets-check`.
+# ---
+# verify tools/skel/templates.odin matches the tracked template files
+embed-check:
+	just _embed check
+
+[script("python")]
+_embed mode:
+	import subprocess, sys, os, difflib
+
+	# Mirrors `new`'s exclusion: tools/ is the skeleton's own tooling, not part of the template.
 	EXCLUDED_PREFIXES = ("tools/",)
+	GENERATED = os.path.join("tools", "skel", "templates.odin")
 
-	proj = r"{{name}}" or os.path.basename(os.path.normpath(dest))
 	files = subprocess.run(
 		["git", "ls-files"], capture_output=True, text=True, check=True
 	).stdout.splitlines()
-	copied = skipped = 0
+	files = sorted(f for f in files if not f.startswith(EXCLUDED_PREFIXES))
+	if not files:
+		sys.exit("no template files found - is this a git checkout?")
+
+	lines = [
+		"// Code generated by `just embed`. DO NOT EDIT.",
+		"//",
+		"// One entry per tracked template file, embedded at compile time so that `odin-skel new` needs",
+		"// neither a network nor a clone. Regenerate with `just embed`; `just embed-check` fails if this",
+		"// file no longer matches the repository.",
+		"package skel",
+		"",
+		"TEMPLATES :: []Template{",
+	]
 	for rel in files:
-		if rel.startswith(EXCLUDED_PREFIXES):
-			skipped += 1
-			continue
-		src = os.path.join(os.getcwd(), rel)
-		out_rel = rel
-		if rel.endswith(".sublime-project"):
-			out_rel = os.path.join(os.path.dirname(rel), proj + ".sublime-project")
-		dst = os.path.join(dest, out_rel)
-		os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
-		if rel == "justfile":  # drop the skeleton-only recipes from the project's justfile
-			with open(src, encoding="utf-8") as f:
-				content = strip_skeleton_only(f.read())
-			with open(dst, "w", encoding="utf-8", newline="\n") as f:
-				f.write(content)
-		elif rel == "LICENSE":  # skeleton is Unlicense; new project gets a fresh Zlib license
-			with open(dst, "w", encoding="utf-8", newline="\n") as f:
-				f.write(zlib_license())
-		else:
-			shutil.copy2(src, dst)
-		copied += 1
-	print("copied " + str(copied) + " skeleton files to " + dest + " (project '" + proj + "', Zlib license)")
-	if skipped:
-		print("skipped " + str(skipped) + " skeleton-tooling files (" + ", ".join(EXCLUDED_PREFIXES) + ")")
+		# #load resolves relative to this generated file, which lives two directories down.
+		load_path = "../../" + rel
+		lines.append('\t{path = "%s", data = #load("%s", string)},' % (rel, load_path))
+	lines.append("}")
+	content = "\n".join(lines) + "\n"
+
+	mode = r"{{mode}}"
+	if mode == "write":
+		with open(GENERATED, "w", encoding="utf-8", newline="\n") as f:
+			f.write(content)
+		print("wrote " + GENERATED + " (" + str(len(files)) + " template files)")
+	elif mode == "check":
+		try:
+			with open(GENERATED, encoding="utf-8") as f:
+				current = f.read()
+		except FileNotFoundError:
+			sys.exit("missing " + GENERATED + ", run `just embed`")
+		if current != content:
+			sys.stdout.writelines(difflib.unified_diff(
+				current.splitlines(keepends=True), content.splitlines(keepends=True),
+				fromfile=GENERATED + " (committed)", tofile=GENERATED + " (generated)",
+			))
+			sys.exit("stale embed list, run `just embed`")
+		print("embedded templates up to date")
+	else:
+		sys.exit("unknown mode: " + mode)
 
 
 # main.odin + the justfile are the source of truth, so the snippets cannot silently drift. Run after

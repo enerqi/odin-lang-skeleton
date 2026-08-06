@@ -10,7 +10,7 @@ VERSION :: #config(SKEL_VERSION, "dev")
 // Subcommands the binary implements itself. The passthrough MUST refuse to forward any of these to
 // `just`, otherwise `just new` -> `odin-skel new` -> `just new` ping-pongs forever once a name is
 // added here but the dispatch below forgets it (see tools/DESIGN.md, Open items / Loop guard).
-OWNED_COMMANDS :: []string{"version", "doctor", "help"}
+OWNED_COMMANDS :: []string{"new", "version", "doctor", "help"}
 
 USAGE :: `odin-skel - project scaffolding for the Odin skeleton
 
@@ -18,12 +18,10 @@ Usage:
   odin-skel <command> [args...]
 
 Commands:
-  doctor     check the toolchain (odin, just, odinfmt, git) and report what is missing
-  version    print the binary version
-  help       print this message
-
-Not implemented yet:
-  new        scaffold a project (phase 2 - see tools/DESIGN.md)
+  new <dest> [name]  scaffold a project into dest (must be empty apart from .git)
+  doctor             check the toolchain (odin, just, odinfmt, git) and report what is missing
+  version            print the binary version
+  help               print this message
 `
 
 main :: proc() {
@@ -47,8 +45,13 @@ run :: proc() -> int {
 		fmt.print(USAGE)
 		return 0
 	case "new":
-		fmt.eprintln("odin-skel: `new` is not implemented yet - use `just new` inside a skeleton clone")
-		return 1
+		if len(args) < 2 {
+			fmt.eprintln("odin-skel: `new` needs a destination directory")
+			fmt.eprintln("usage: odin-skel new <dest> [name]")
+			return 2
+		}
+		name := len(args) >= 3 ? args[2] : ""
+		return new(args[1], name)
 	case:
 		fmt.eprintfln("odin-skel: unknown command %q", args[0])
 		fmt.eprint(USAGE)

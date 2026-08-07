@@ -147,11 +147,17 @@ jobs:
       # proved they still compile, link and run - a broken flag would only be discovered by whoever
       # first reached for one.
       #
-      # Linux only. AddressSanitizer is the one of the three with broad support; `memory` and
-      # `thread` need a clang-ish toolchain and are unavailable on Windows/MSVC (see the notes on
-      # the `sanitize` recipe). ASan on macOS additionally wants the Xcode runtime rather than the
-      # LLVM one setup-odin provides, so pinning this to ubuntu keeps it a signal rather than a
-      # source of platform noise.
+      # `address` only. `memory` and `thread` need a clang-ish toolchain and are unavailable on
+      # Windows/MSVC (see the notes on the `sanitize` recipe).
+      #
+      # Windows is included deliberately: it was ubuntu-only, and that is exactly why a Windows-only
+      # sanitizer break went unnoticed - `test_sanitize` pinned `-linker:radlink`, whose ASan output
+      # died on startup with a bare `0xc000001d`. Ubuntu could never have caught it, because there
+      # the linker resolves to `default` regardless.
+      #
+      # macOS stays excluded: ASan there wants the Xcode runtime rather than the LLVM one setup-odin
+      # provides, so it would be platform noise rather than signal. Drop the condition entirely if
+      # that ever changes.
       #
       # Deliberately the last steps in the job: these depend on an ASan runtime being present
       # alongside the toolchain, which is the one thing here outside the repository's control. If
@@ -162,9 +168,9 @@ jobs:
       # operational setup - the tracking allocator and logger, allocating and freeing under ASan -
       # while `test_sanitize` covers the `odin test` harness.
       - name: sanitizer build (address)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os != 'macos-latest'
         run: just sanitize address
 
       - name: sanitizer tests (address)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os != 'macos-latest'
         run: just test_sanitize address

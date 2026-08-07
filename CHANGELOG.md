@@ -9,6 +9,76 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-07
+
+### Changed
+
+- **`windows-shell` is now `cmd.exe /c` instead of PowerShell. `just run` drops from ~497ms to
+  ~368ms and `just rerun` from ~178ms to ~28ms.** 0.4.1 moved only `mktarget_dirs` off PowerShell;
+  measuring the rest showed the same tax on *every* recipe line, because just launches a fresh shell
+  per line. Bare `<shell> exit` under hyperfine:
+
+  | shell | startup |
+  | --- | --- |
+  | `cmd.exe /c` | ~9ms |
+  | `nu -c` | ~41ms |
+  | `powershell.exe -NoLogo -NoProfile -Command` | ~143ms |
+
+  End to end that was ~178ms per recipe line under PowerShell against ~45ms under cmd. The worst case
+  was `rerun_*`, whose entire reason to exist is skipping the compile Odin has no cache to avoid, and
+  which spent ~178ms of shell startup to launch a binary that prints one line. For `just run` the
+  overhead above Odin's own ~299ms of work fell from ~198ms to ~69ms.
+
+  This also settles the portability question the other way. nu was dropped as the default because it is
+  absent from stock machines and GitHub's windows runners; cmd is *more* portable than the PowerShell
+  that replaced it — on every Windows, no install, and no profile to make a recipe unreproducible, so
+  the `-NoProfile` guard is moot — while being ~16x faster to start. The one real cost is that cmd is a
+  poor language for a multi-line recipe, which does not bite here: every Windows recipe body is a
+  single command, and anything with logic already routes to `[script("python")]`.
+
+  Consequently `mktarget_dirs` no longer needs 0.4.1's `[script("cmd.exe", "/c")]` + `[extension]`
+  override, and shedding the temp file that attribute pair required took it from ~27ms to ~21ms.
+
+- **Every build output path now goes through a `target_path(dir, name)` function** rather than being
+  spelled out per recipe. It uses `join`, deliberately not the `/` operator: `/` always emits a forward
+  slash, and while Odin accepts either inside an `-out:` *argument*, cmd.exe rejects a forward-slash
+  path in *command* position — `target/debug/main.exe` as a recipe's command fails with `'target' is
+  not recognized`, and quoting does not save it. `join` uses the native separator, so the five
+  `rerun_*` recipes work on both platforms from one definition instead of needing `[windows]`/`[unix]`
+  pairs. The `./` prefix they used to carry is gone: bash treats any path containing a slash as a path
+  rather than a `PATH` lookup, so it was never load-bearing.
+
+- `clean` on Windows uses `if exist target rmdir /s /q target`, since PowerShell's `Remove-Item` is no
+  longer available. The `if exist` guard matters for the same reason the old `Test-Path` one did:
+  `rmdir` exits non-zero on a missing path, which would fail the recipe on an already-clean tree.
+
+### Fixed
+
+- **`just test1` never worked: there is no `-test-name:` compiler flag.** It failed with
+  `Unknown flag: 'test-name'` before building anything. Test selection is a `core:testing` define, so
+  the recipe now passes `-define:ODIN_TEST_NAMES={{name}}`, which
+  [the testing docs](https://odin-lang.org/docs/testing/) give as
+  `ODIN_TEST_NAMES=<package.test_name,test_name,...>`. The value is a comma-separated list and the
+  package prefix is optional, so `just test1 one,two` runs exactly those two.
+
+  Nothing in CI exercises `test1`, which is why a recipe that could never have worked shipped anyway.
+
+- **`just test_sanitize` died on startup on Windows** with a bare `0xc000001d`
+  (illegal instruction) and no usable stack. Cause was `-linker:{{linker}}`, which on Windows defaults
+  to `radlink`: a sanitizer has to interpose on the runtime and radlink's output does not survive it.
+  Both `sanitize` and `test_sanitize` now omit the linker pin and let Odin choose, on the same
+  reasoning `build_skel_release` already used — link speed is worth nothing on a diagnostic run, and
+  pinning it turned these recipes into a report about the linker rather than about your code.
+
+  Confirmed against the pre-existing path spelling, so this was never related to the `join` change
+  above.
+
+- **CI now runs the two sanitizer steps on Windows as well as Linux**, which is the gap that let the
+  bug above ship: they were pinned to `ubuntu-latest`, where the linker resolves to `default`
+  regardless, so no amount of green CI could have caught a radlink-only failure. macOS stays excluded —
+  ASan there wants the Xcode runtime rather than the LLVM one `setup-odin` provides, so it would be
+  platform noise rather than signal.
+
 ## [0.4.1] - 2026-08-07
 
 ### Changed
@@ -345,7 +415,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.4.1...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.4.2...HEAD
+[0.4.2]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.2
 [0.4.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.1
 [0.4.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.0
 [0.3.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.3.1

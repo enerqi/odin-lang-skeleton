@@ -193,6 +193,51 @@ jobs:
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
+      # Built here rather than committed, because the hash cannot exist until the archives do - which
+      # is after the tag. Committing it would always mean a follow-up commit landing after the tag it
+      # describes, with a window where scoop users get the previous version. As a release asset the
+      # install URL is `releases/latest/download/odin-skel.json`, which GitHub keeps pointing at the
+      # newest release forever.
+      #
+      # Deliberately after the checksums step: SHA256SUMS covers the archives, and a manifest that
+      # embeds one of those hashes cannot also be inside the file it reads.
+      - name: scoop manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This job only runs for tags, so the ref name is the version; same `v` strip as the build.
+          export SKEL_VERSION="${GITHUB_REF_NAME#v}"
+          python3 - <<'PY'
+          import json, os, sys
+
+          version = os.environ["SKEL_VERSION"]
+          asset = "odin-skel-windows-x86_64.zip"
+
+          with open("packaging/scoop/odin-skel.json", encoding="utf-8") as f:
+              manifest = json.load(f)
+
+          digest = None
+          with open("dist/SHA256SUMS", encoding="utf-8") as f:
+              for line in f:
+                  parts = line.split()
+                  if len(parts) == 2 and parts[1].lstrip("*") == asset:
+                      digest = parts[0]
+                      break
+          if digest is None:
+              sys.exit(asset + " missing from SHA256SUMS")
+
+          base = "https://github.com/enerqi/odin-lang-skeleton/releases/download/" + version
+          manifest.pop("##", None)
+          manifest["version"] = version
+          manifest["architecture"]["64bit"]["url"] = base + "/" + asset
+          manifest["architecture"]["64bit"]["hash"] = digest
+
+          with open("dist/odin-skel.json", "w", encoding="utf-8", newline="\n") as f:
+              json.dump(manifest, f, indent=4)
+              f.write("\n")
+          print(json.dumps(manifest, indent=4))
+          PY
+
       - name: list assets
         run: ls -l dist
 

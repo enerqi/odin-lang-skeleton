@@ -1,12 +1,19 @@
 {
-    "version": "0.1.2",
+    "##": [
+        "Template for the scoop manifest published as a release asset.",
+        "The release workflow fills in version, url and hash from the tag and that release's",
+        "SHA256SUMS, then uploads the result as odin-skel.json. Edit the other fields here.",
+        "Install with:",
+        "  scoop install https://github.com/enerqi/odin-lang-skeleton/releases/latest/download/odin-skel.json"
+    ],
+    "version": "0.0.0",
     "description": "Scaffold a new Odin project from the odin-lang-skeleton template",
     "homepage": "https://github.com/enerqi/odin-lang-skeleton",
     "license": "Unlicense",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/enerqi/odin-lang-skeleton/releases/download/0.1.2/odin-skel-windows-x86_64.zip",
-            "hash": "72f206b18c5cf20fe39144d9c169f94f6e70a9a9a35525a4f559f8ecd041cab3"
+            "url": "https://github.com/enerqi/odin-lang-skeleton/releases/download/0.0.0/odin-skel-windows-x86_64.zip",
+            "hash": "0000000000000000000000000000000000000000000000000000000000000000"
         }
     },
     "bin": "odin-skel.exe",

@@ -16,8 +16,11 @@ release deliberately — a release with no notes is the thing this file exists t
   It does not edit shell profiles — it prints the `PATH` line to add if the directory is missing.
   On Windows, `packaging/scoop/odin-skel.json` can be installed by URL without a custom bucket, and
   scoop then handles `PATH`, update and uninstall.
-- `just scoop_manifest VERSION` repoints the manifest at a published release, taking the hash from
-  that release's `SHA256SUMS` rather than transcribing it by hand.
+- The scoop manifest is generated during the release and published as an asset, so
+  `scoop install https://github.com/enerqi/odin-lang-skeleton/releases/latest/download/odin-skel.json`
+  always resolves to the newest version. A committed manifest could not do this: its hash cannot
+  exist until the archives do, which is after the tag, so it would always need a follow-up commit
+  landing after the tag it describes.
 
 ## [0.1.2] - 2026-08-07
 

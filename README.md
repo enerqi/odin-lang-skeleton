@@ -119,11 +119,13 @@ rather not pipe a script into a shell — it is short, and the manual route belo
 ### Windows
 
 ```
-scoop install https://raw.githubusercontent.com/enerqi/odin-lang-skeleton/master/packaging/scoop/odin-skel.json
+scoop install https://github.com/enerqi/odin-lang-skeleton/releases/latest/download/odin-skel.json
 ```
 
 [Scoop](https://scoop.sh/) puts it on `PATH` and handles `scoop update odin-skel` and `scoop uninstall odin-skel`.
-Installing a manifest by URL like this does not need a custom bucket.
+Installing a manifest by URL like this does not need a custom bucket. The manifest is published as a release asset
+with the version and hash already filled in, and `releases/latest/download/…` always resolves to the newest
+release, so the command above never goes stale.
 
 ### Manually, any platform
 
@@ -184,14 +186,10 @@ git push origin 0.1.1
 make after reading the diff. It refuses to run twice for the same version, and refuses when the Unreleased section
 is empty.
 
-Once the release has published, point the scoop manifest at it — users installing from the raw URL get whatever
-version is committed, so this is what makes the new one reachable:
-
-```
-just scoop_manifest 0.1.2      # reads the hash from that release's SHA256SUMS
-```
-
-The install script needs no such step: it resolves the latest release at run time.
+There is no follow-up step after tagging. The scoop manifest is generated during the release from
+`packaging/scoop/odin-skel.json` — the workflow fills in the version, URL and hash from that release's
+`SHA256SUMS` and uploads it as an asset — and the install script resolves the latest release at run time. Edit the
+template only when a field other than those three changes.
 
 Each target runs `embed-check` and the tool's tests, builds with `-define:SKEL_VERSION=0.1.0` (the tag without
 its leading `v`), and asserts the binary reports that exact version before it is published. The workflow can also

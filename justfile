@@ -418,53 +418,6 @@ release version:
 	print("next: review the diff, commit, then `git tag -a " + version + " -m " + version + "` and push")
 
 
-# Points packaging/scoop/odin-skel.json at a published release, reading the hash out of that
-# release's SHA256SUMS so it is never transcribed by hand.
-#
-# The manifest carries checkver/autoupdate, but that only helps a scoop *bucket*; users installing
-# straight from the raw URL in this repo get whatever version is committed, so it needs refreshing
-# after each release. Run it once the release is published - it fetches from GitHub.
-# ---
-# update the scoop manifest to a published release
-[script("python")]
-scoop_manifest version:
-	import json, sys, urllib.request
-
-	version = r"{{version}}".lstrip("v")
-	repo = "enerqi/odin-lang-skeleton"
-	asset = "odin-skel-windows-x86_64.zip"
-	path = "packaging/scoop/odin-skel.json"
-	base = "https://github.com/" + repo + "/releases/download/" + version
-
-	try:
-		with urllib.request.urlopen(base + "/SHA256SUMS", timeout=30) as r:
-			sums = r.read().decode("utf-8")
-	except Exception as e:
-		sys.exit("could not fetch " + base + "/SHA256SUMS - is " + version + " published? (" + str(e) + ")")
-
-	digest = None
-	for line in sums.splitlines():
-		parts = line.split()
-		if len(parts) == 2 and parts[1].lstrip("*") == asset:
-			digest = parts[0]
-			break
-	if digest is None:
-		sys.exit(asset + " is not listed in the SHA256SUMS for " + version)
-
-	with open(path, encoding="utf-8") as f:
-		manifest = json.load(f)
-
-	manifest["version"] = version
-	manifest["architecture"]["64bit"]["url"] = base + "/" + asset
-	manifest["architecture"]["64bit"]["hash"] = digest
-
-	with open(path, "w", encoding="utf-8", newline="\n") as f:
-		json.dump(manifest, f, indent=4)
-		f.write("\n")
-
-	print("scoop manifest -> " + version + " (" + digest[:16] + "...)")
-
-
 # Prints the CHANGELOG.md section for VERSION, which the release workflow prepends to the release's
 # auto-generated notes. Exits non-zero when there is no matching section: GitHub's generator lists
 # merged pull requests only, so for a repo that pushes straight to master a missing section means a

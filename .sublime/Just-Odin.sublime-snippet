@@ -15,6 +15,12 @@ set shell := ["bash", "-c"]
 set unstable  # [script("python")] feature - https://github.com/casey/just/issues/1479
 set lazy
 
+# Set by the newest just feature used below - currently user-defined functions (1.49), for
+# `target_path`. Older features it also needs: `join()` 1.37, f-strings 1.44, `set lazy` 1.47.
+# Without this an old just reports a plain syntax error at the offending line, which reads like a
+# corrupt justfile rather than an out-of-date tool. Keep the README and `odin-skel doctor` in step.
+set minimum-version := "1.49.0"
+
 main_name := "${1:main.exe}"
 test_main_name := "${2:test-main.exe}"
 

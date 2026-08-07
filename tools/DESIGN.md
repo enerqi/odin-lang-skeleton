@@ -212,8 +212,9 @@ Not decided; deliberately deferred.
   binary may install itself, so it is worth designing before it is built
 * update *check* cadence and opt-out (`ODIN_SKEL_NO_UPDATE_CHECK=1`); must never block or fail a
   command
-* minimum `just` version to enforce. The README states 1.32; `just --version` prints `just 1.46.0`, so
-  parsing is trivial
+* minimum `just` version to enforce — now done, in `doctor.odin`'s `min_version`. The floor is set by
+  the newest just feature the justfile actually uses (currently user-defined functions, 1.49), so it
+  moves when a recipe adopts something newer; the README's stated floor has to move with it
 
 * a starter CI workflow *for scaffolded projects*. The skeleton's own `.github/` is excluded from the
   template because it checks skeleton-only things, so a generated project currently gets no CI at all.

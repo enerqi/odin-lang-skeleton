@@ -32,8 +32,15 @@ CHECKS :: []Tool_Check {
 		name        = "just",
 		probe_args  = {"just", "--version"},
 		required    = true,
-		// The skeleton's README states 1.32 as the floor; recipes use features from that era.
-		min_version = {1, 32, 0},
+		// Must match the justfile's own `set minimum-version`, which is the real gate - it fires on
+		// every `just` invocation, while this only fires when someone runs `doctor`. The duplication
+		// buys a better first-run experience: doctor names the tool, why it is needed and where to get
+		// it, alongside the odin/git/odinfmt checks, rather than erroring at a justfile line.
+		//
+		// The floor is set by the newest just feature the justfile uses - currently user-defined
+		// functions (1.49), for `target_path`. Raise all three (here, the justfile, the README)
+		// together when a recipe adopts something newer.
+		min_version = {1, 49, 0},
 		why         = "runs every recipe in the justfile",
 		install     = "https://just.systems/",
 	},

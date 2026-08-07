@@ -118,7 +118,7 @@ generator that keeps them in sync stays behind — see [Generated editor snippet
 ## Tasks
 
 A `justfile` is part of this opinionated setup and you may need to edit the tasks as new packages are added in
-sub-directories. [Just >=1.32](https://just.systems/) is a CLI task runner that you *need to install*. Run any task
+sub-directories. [Just >=1.49](https://just.systems/) is a CLI task runner that you *need to install*. Run any task
 with `just TASK`:
 
 **Build & run** — `odin run` always recompiles the whole package (Odin has no build cache / incremental compilation).

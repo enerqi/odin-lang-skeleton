@@ -105,6 +105,28 @@ Notes:
 `odin-skel` is a single binary that scaffolds a new project. The whole template is compiled into it, so it needs
 no network access, no git clone, and no copy of this repository.
 
+### Linux and macOS
+
+```
+curl -fsSL https://raw.githubusercontent.com/enerqi/odin-lang-skeleton/master/packaging/install.sh | sh
+```
+
+Installs into `~/.local/bin`, which is already on `PATH` on most systems; the script tells you what to add if it
+is not, and does not edit your shell profile. It verifies the download against the published `SHA256SUMS`.
+Override with `ODIN_SKEL_INSTALL_DIR=/usr/local/bin` or `ODIN_SKEL_VERSION=0.1.2`. Read it first if you would
+rather not pipe a script into a shell — it is short, and the manual route below does the same thing.
+
+### Windows
+
+```
+scoop install https://raw.githubusercontent.com/enerqi/odin-lang-skeleton/master/packaging/scoop/odin-skel.json
+```
+
+[Scoop](https://scoop.sh/) puts it on `PATH` and handles `scoop update odin-skel` and `scoop uninstall odin-skel`.
+Installing a manifest by URL like this does not need a custom bucket.
+
+### Manually, any platform
+
 Download the archive for your platform from the
 [latest release](https://github.com/enerqi/odin-lang-skeleton/releases/latest) and extract it. Each one contains
 the binary already named `odin-skel` (`odin-skel.exe` on Windows) plus the licence — put the binary somewhere on
@@ -161,6 +183,15 @@ git push origin 0.1.1
 `just release` only edits `CHANGELOG.md` — it does not stage, commit or tag, so the release stays a decision you
 make after reading the diff. It refuses to run twice for the same version, and refuses when the Unreleased section
 is empty.
+
+Once the release has published, point the scoop manifest at it — users installing from the raw URL get whatever
+version is committed, so this is what makes the new one reachable:
+
+```
+just scoop_manifest 0.1.2      # reads the hash from that release's SHA256SUMS
+```
+
+The install script needs no such step: it resolves the latest release at run time.
 
 Each target runs `embed-check` and the tool's tests, builds with `-define:SKEL_VERSION=0.1.0` (the tag without
 its leading `v`), and asserts the binary reports that exact version before it is published. The workflow can also

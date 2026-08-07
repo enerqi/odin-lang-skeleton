@@ -9,6 +9,16 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+### Added
+
+- One-shot installs. On Linux and macOS, `packaging/install.sh` (`curl … | sh`) downloads the release
+  archive, verifies it against the published `SHA256SUMS`, and places the binary in `~/.local/bin`.
+  It does not edit shell profiles — it prints the `PATH` line to add if the directory is missing.
+  On Windows, `packaging/scoop/odin-skel.json` can be installed by URL without a custom bucket, and
+  scoop then handles `PATH`, update and uninstall.
+- `just scoop_manifest VERSION` repoints the manifest at a published release, taking the hash from
+  that release's `SHA256SUMS` rather than transcribing it by hand.
+
 ## [0.1.2] - 2026-08-07
 
 ### Changed

@@ -9,6 +9,22 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-07
+
+### Changed
+
+- **`mktarget_dirs` on Windows now runs under `cmd.exe` instead of PowerShell: ~189ms to ~32ms.**
+  Every `run_*`, `test*` and `diagnose` recipe depends on it, so the saving lands on every iteration.
+  The directory creation was never the slow part — hyperfine puts `powershell.exe -NoProfile -Command
+  exit` at ~149ms against ~40ms for the actual `New-Item` work, so most of the recipe was paying for
+  a shell to start. `[script("cmd.exe", "/c")]` plus `[extension(".cmd")]` override the shell for this
+  one recipe without touching the file's `windows-shell` setting, and cmd starts in ~10ms.
+
+  Worth recording the measurement that did *not* pay off: scoping the recipe to only the one
+  directory a given build needs saves ~5ms of that ~40ms and nothing of the ~149ms. The cmd body uses
+  `if not exist` rather than swallowing `md`'s "already exists" with `2>nul`, so a genuine failure
+  still exits non-zero.
+
 ## [0.4.0] - 2026-08-07
 
 ### Changed
@@ -329,7 +345,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.4.0...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.4.1...HEAD
+[0.4.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.1
 [0.4.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.0
 [0.3.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.3.1
 [0.3.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.3.0

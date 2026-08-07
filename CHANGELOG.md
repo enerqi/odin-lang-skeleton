@@ -9,6 +9,8 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-07
+
 ### Changed
 
 - README sections reordered to follow the path a reader takes: install `odin-skel`, scaffold a
@@ -214,7 +216,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.3.0...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.3.1...HEAD
+[0.3.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.3.1
 [0.3.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.3.0
 [0.2.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.2.1
 [0.2.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.2.0

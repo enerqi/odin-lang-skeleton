@@ -164,6 +164,23 @@ run_release_nochecks *args: mktarget_dirs
 # `thread` need a clang-ish toolchain and are unavailable on some platforms (notably Windows/MSVC).
 # Built with `-debug` so reports carry file/line info, and to its own output name so it does not clobber
 # the plain debug binary.
+#
+# KNOW THIS BEFORE TRUSTING A CLEAN RUN: on Windows, `address` does not detect heap errors at all.
+# Odin's allocator calls `HeapAlloc` there (base/runtime/heap_allocator_windows.odin) instead of
+# `malloc`, and ASan's redzones come from intercepting the allocator - so it never sees the allocation
+# and has nothing to guard. Measured by writing one byte past a 16-byte `make([]u8, 16)` at +16, +24,
+# +32, +64 and +256: Linux reports `heap-buffer-overflow` from +24 on, Windows reports nothing at any
+# offset, and at +32 the process died with no ASan output whatsoever. Stack overflows are caught on
+# both, because that instrumentation is compiler-inserted rather than interception-based.
+#
+# (+16 is not a bug: the allocator hands back more than the 16 bytes asked for, so a write there is
+# still in bounds. Any probe of your own needs to clear that slack before it means anything.)
+#
+# The practical reading: on Windows a clean `just sanitize` rules out stack bugs, not heap bugs. Chase
+# a suspected heap bug on Linux, or with the tracking allocator (`-define:TRACKING_ALLOCATOR=backtrace`)
+# which does not depend on ASan. The `interception_win: unhandled instruction` line these builds print
+# is this same limitation announcing itself, not a fault in your code.
+#
 # Both sanitizer recipes deliberately omit `-linker:{{linker}}`: link speed is worth nothing on a
 # diagnostic run, and pinning it here actively broke things. A sanitizer has to interpose on the
 # runtime, which not every linker cooperates with - `radlink` (this file's Windows default, and bundled

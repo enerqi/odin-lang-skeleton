@@ -155,7 +155,18 @@ compile entirely (needs a prior `run_*` of the same profile):
 * `just test` / `just test1 NAME` — run all tests / one named test
 * `just sanitize [KIND]` / `just test_sanitize [KIND]` — run the program / the tests under a sanitizer. `KIND` is
   `address` (default), `memory` or `thread`. Only `address` is widely supported; `memory` and `thread` need a
-  clang-ish toolchain and are unavailable on some platforms (notably Windows/MSVC)
+  clang-ish toolchain and are unavailable on some platforms (notably Windows/MSVC).
+
+  **On Windows, `address` catches stack errors but not heap errors** — a clean run there does not mean your
+  heap is clean. Odin allocates through `HeapAlloc` rather than `malloc` on Windows, and ASan's redzones come
+  from intercepting the allocator, so it never sees the allocation. Verified by overflowing a 16-byte
+  allocation at +24, +32, +64 and +256 bytes: Linux reports `heap-buffer-overflow` at every one, Windows at
+  none. The `interception_win: unhandled instruction` line these builds print is that limitation, not a fault
+  in your code. Chase a suspected heap bug on Linux, or with `-define:TRACKING_ALLOCATOR=backtrace`, which
+  does not rely on ASan.
+
+  On Linux the sanitizer runtime is a separate install — without it the link fails on a missing
+  `libclang_rt.asan.a`. On Debian/Ubuntu with clang 21 that is `libclang-rt-21-dev`.
 
 **Housekeeping:**
 

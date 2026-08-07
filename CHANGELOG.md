@@ -9,6 +9,41 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-08-07
+
+### Changed
+
+- **Documented that `-sanitize:address` does not detect heap errors on Windows.** The recipes shipped, the
+  README sold them, and nothing said that the check most people reach for silently does not fire there. A
+  clean `just sanitize` on Windows rules out stack bugs only.
+
+  Odin's allocator calls `HeapAlloc` on Windows (`base/runtime/heap_allocator_windows.odin`) rather than the
+  `malloc` it uses on Unix (`heap_allocator_unix.odin`). ASan's redzones come from intercepting the
+  allocator, so on Windows it never sees the allocation and has nothing to guard. The
+  `interception_win: unhandled instruction` line these builds print is that limitation announcing itself.
+
+  Measured by writing one byte past a 16-byte `make([]u8, 16)`:
+
+  | overflow offset | Linux | Windows |
+  | --- | --- | --- |
+  | +16 | not reported (still inside the allocator's slack, on both) | not reported |
+  | +24 | `heap-buffer-overflow` | nothing |
+  | +32 | `heap-buffer-overflow` | nothing — process died with no ASan output at all |
+  | +64 | `heap-buffer-overflow` | nothing |
+  | +256 | `heap-buffer-overflow` | nothing |
+
+  Stack overflows are caught on both platforms, because that instrumentation is compiler-inserted rather
+  than interception-based. The +16 row is worth keeping in mind for anyone writing their own probe: the
+  allocator returns more than the requested 16 bytes, so a write there is genuinely in bounds and proves
+  nothing either way.
+
+  The README now also records that the Linux sanitizer runtime is a separate install — without it the link
+  fails on a missing `libclang_rt.asan.a`, which on Debian/Ubuntu with clang 21 is `libclang-rt-21-dev`.
+
+  No behaviour change; the recipes are untouched. A CI step asserting *detection* rather than
+  compile-link-run was considered and dropped: it would have to encode "expect a heap catch on Linux, expect
+  silence on Windows", which bakes a bug in as expected behaviour.
+
 ## [0.4.3] - 2026-08-07
 
 ### Added
@@ -421,7 +456,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.4.3...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.4.4...HEAD
+[0.4.4]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.4
 [0.4.3]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.3
 [0.4.2]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.2
 [0.4.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.1

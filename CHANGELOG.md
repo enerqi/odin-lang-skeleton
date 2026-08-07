@@ -9,6 +9,16 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+### Changed
+
+- README sections reordered to follow the path a reader takes: install `odin-skel`, scaffold a
+  project, then drive it with `just`. "Choosing a linker" was sitting between the Quality and
+  Housekeeping task bullets, so those later bullet groups read as if they belonged to it; it is now
+  its own section after Tasks. It stays outside the `skeleton-only` markers — the `linker` variable
+  and `ODIN_LINKER` override exist in a scaffolded project's justfile too. The two
+  maintainer-only topics, snippet generation and cutting a release, are grouped under a new
+  "Skeleton maintenance" section at the bottom, which `just new` strips like the rest.
+
 ## [0.3.0] - 2026-08-07
 
 ### Fixed

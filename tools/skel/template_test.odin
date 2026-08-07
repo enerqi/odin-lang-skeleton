@@ -174,10 +174,12 @@ test_project_readme_on_the_real_readme :: proc(t: ^testing.T) {
 		strings.contains(got, "\n## Odin Programming Language Project Skeleton\n"),
 		"the old H1 should now be an H2",
 	)
+	// Every heading that survives the strip is an H2 - the H3s all live in skeleton-only sections -
+	// so this is the deepest level the scaffolded README can exercise.
 	testing.expect(
 		t,
-		strings.contains(got, "\n#### Choosing a linker\n"),
-		"an H3 should now be an H4",
+		strings.contains(got, "\n### Choosing a linker\n"),
+		"an H2 should now be an H3",
 	)
 	// Anchors come from heading text, not level, so an in-document link and the heading it points
 	// at must both still be there - and matched to each other - after the demotion.
@@ -414,7 +416,9 @@ test_strip_on_the_real_readme :: proc(t: ^testing.T) {
 	for gone in ([]string{"Installing odin-skel", "Cutting a release", "just new", "just embed", "just snippets", "odin-skel", "skeleton-only"}) {
 		testing.expectf(t, !strings.contains(got, gone), "skeleton-only README content %q leaked", gone)
 	}
-	for kept in ([]string{"just run", "just lint", "Language Server Configuration"}) {
+	// "Choosing a linker" documents a justfile variable the scaffolded project still has, so it must
+	// stay outside the markers however the section is nested or moved.
+	for kept in ([]string{"just run", "just lint", "Language Server Configuration", "Choosing a linker"}) {
 		testing.expectf(t, strings.contains(got, kept), "README content %q was stripped", kept)
 	}
 }

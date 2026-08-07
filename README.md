@@ -69,7 +69,7 @@ top of the justfile, passed to every recipe that links:
 | value | notes |
 | --- | --- |
 | `default` | Odin picks — MSVC `link.exe` on Windows. Portable, and the default everywhere except Windows |
-| `lld` | LLVM's linker. Valid on every platform |
+| `lld` | LLVM's linker. Windows and Linux. **Not on a stock macOS** — Odin links through clang, and Apple's clang ships no lld, so it fails with `invalid linker name in argument '-fuse-ld=lld'` unless you installed LLVM yourself |
 | `radlink` | RAD Debugger's linker. **Windows only**, and bundled with the Odin toolchain, so it needs no install — which is why it is the Windows default here |
 | `mold` | **Linux only**, and *not* bundled — `apt install mold` or equivalent first |
 
@@ -89,8 +89,11 @@ odin-skel new ../my-service --linker=mold
 ```
 <!-- <<< skeleton-only -->
 
-Odin rejects a linker its platform does not support rather than falling back — asking for mold on Windows exits 1 with
-`'mold' linker is not supported on this platform` and produces no binary. `ODIN_LINKER` is an environment variable
+Nothing falls back silently, but the two ways a linker can be unavailable fail differently. Odin knows mold is
+Linux-only, so asking for it on Windows exits 1 with `'mold' linker is not supported on this platform` before any work
+happens. `lld` on macOS gets no such check — Odin accepts the value and clang rejects it further down with
+`invalid linker name in argument '-fuse-ld=lld'`. Either way you get exit 1 and no binary, just with more or less
+explanation. `ODIN_LINKER` is an environment variable
 rather than a recipe argument because `odin` errors on a repeated flag, so a `-linker:` passed through a recipe's extra
 args would collide with the one the recipe already adds.
 

@@ -32,6 +32,12 @@ release deliberately — a release with no notes is the thing this file exists t
   it is an environment variable rather than a recipe argument because `odin` errors on a repeated
   flag, so a `-linker:` passed through a recipe's extra args would collide.
 
+  Availability is per-platform and the two failure modes differ. Odin knows mold is Linux-only and
+  refuses it elsewhere before doing any work. `lld` gets no such check: Odin accepts it everywhere,
+  but on a stock macOS the link runs through Apple's clang, which ships no lld and rejects
+  `-fuse-ld=lld` as an invalid linker name. `radlink` is Windows-only. Both the justfile and the
+  README spell this out per value.
+
   Not a free win in every configuration, and the justfile and README say so: neither radlink nor
   mold is an *incremental* linker, while MSVC `link.exe` is, so with `-use-separate-modules` (which
   `-lto` implies) an incremental relink of one changed module can beat a faster full link. Stock

@@ -15,7 +15,12 @@ test_main_name := "${2:test-main.exe}"
 #
 #   default   let Odin choose - MSVC `link.exe` on Windows. The portable answer, and what every
 #             platform used before this line existed.
-#   lld       LLVM's linker. Available wherever the toolchain is.
+#   lld       LLVM's linker. Windows and Linux. NOT available on a stock macOS: Odin drives the
+#             link through clang, and Apple's clang ships no lld, so it fails with
+#             "clang: error: invalid linker name in argument '-fuse-ld=lld'" unless you have
+#             installed LLVM yourself. Note this is clang rejecting it, not Odin - `-linker:` takes
+#             the value on every platform, so unlike mold there is no "not supported on this
+#             platform" message to tell you up front.
 #   radlink   RAD Debugger's linker. Windows only, and it ships *with* the Odin toolchain, so it
 #             needs no install - which is why it is the default here. Odin has no build cache and
 #             relinks on every `just run`, so the link step is a cost you pay on each iteration.

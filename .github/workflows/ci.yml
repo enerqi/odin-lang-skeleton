@@ -102,16 +102,27 @@ jobs:
           grep -q 'if os() == "windows"' justfile
 
       # The `--linker` path needs its own end-to-end run: the unit tests prove the justfile line is
-      # rewritten, but only an actual build proves the value survives into `odin` and links. lld is
-      # the one choice valid on all three runners - radlink is Windows-only and mold is Linux-only,
-      # so either would turn this into a per-OS special case for no extra coverage.
+      # rewritten, but only an actual build proves the value survives into `odin` and links.
+      #
+      # There is no single value valid on all three runners, so the pin is per-OS. lld covers
+      # Windows and Linux; macOS gets `default` because Odin drives the link through clang and
+      # Apple's clang ships no lld - `-fuse-ld=lld` is rejected with "invalid linker name". That
+      # still exercises the whole path (rewrite -> justfile -> odin -> link), just without proving
+      # a non-default linker on that one runner, which no available value could do anyway: radlink
+      # is Windows-only and mold is Linux-only.
       - name: scaffold with a pinned linker and build it
         shell: bash
         run: |
           set -euo pipefail
-          just new "$RUNNER_TEMP/pinned" pinnedproj --linker=lld
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            pinned=default
+          else
+            pinned=lld
+          fi
+          echo "pinning linker: $pinned"
+          just new "$RUNNER_TEMP/pinned" pinnedproj "--linker=$pinned"
           cd "$RUNNER_TEMP/pinned"
-          grep -q 'linker := env_var_or_default("ODIN_LINKER", "lld")' justfile
+          grep -q "linker := env_var_or_default(\"ODIN_LINKER\", \"$pinned\")" justfile
           if grep -q "if os() ==" justfile; then
             echo "--linker did not replace the per-OS default" >&2
             exit 1
@@ -119,7 +130,13 @@ jobs:
           just run
           # The env var has to win over whatever the project pinned, or there is no escape hatch
           # for the cases the pin gets wrong (-lto on Windows requires lld; a machine without mold).
-          ODIN_LINKER=default just run
+          # Checked by resolving the variable rather than by building: precedence is the thing under
+          # test, and every concrete value is unavailable on at least one of these runners.
+          got="$(ODIN_LINKER=radlink just --evaluate linker)"
+          if [ "$got" != "radlink" ]; then
+            echo "ODIN_LINKER did not override the pinned linker (resolved: $got)" >&2
+            exit 1
+          fi
 
       # The output name carries `.exe` on every platform, matching the skeleton's own `main.exe`
       # convention, so one invocation covers all runners.

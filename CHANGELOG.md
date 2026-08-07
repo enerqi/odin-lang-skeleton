@@ -9,6 +9,8 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-07
+
 ### Added
 
 - One-shot installs. On Linux and macOS, `packaging/install.sh` (`curl … | sh`) downloads the release
@@ -104,7 +106,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.1.2...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.2.0
 [0.1.2]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.1.2
 [0.1.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.1.1
 [0.1.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.1.0

@@ -93,3 +93,29 @@ jobs:
       # convention, so one invocation covers all runners.
       - name: doctor
         run: ./target/debug/odin-skel.exe doctor
+
+      # The skeleton ships five sanitizer recipes and the README sells them, but nothing until now
+      # proved they still compile, link and run - a broken flag would only be discovered by whoever
+      # first reached for one.
+      #
+      # Linux only. AddressSanitizer is the one of the three with broad support; `memory` and
+      # `thread` need a clang-ish toolchain and are unavailable on Windows/MSVC (see the notes on
+      # the `sanitize` recipe). ASan on macOS additionally wants the Xcode runtime rather than the
+      # LLVM one setup-odin provides, so pinning this to ubuntu keeps it a signal rather than a
+      # source of platform noise.
+      #
+      # Deliberately the last steps in the job: these depend on an ASan runtime being present
+      # alongside the toolchain, which is the one thing here outside the repository's control. If
+      # that ever breaks, it fails on its own rather than cutting short the scaffold and doctor
+      # checks above, which are what actually gate a release.
+      #
+      # Both halves are run because they exercise different code: `sanitize` covers main.odin's
+      # operational setup - the tracking allocator and logger, allocating and freeing under ASan -
+      # while `test_sanitize` covers the `odin test` harness.
+      - name: sanitizer build (address)
+        if: matrix.os == 'ubuntu-latest'
+        run: just sanitize address
+
+      - name: sanitizer tests (address)
+        if: matrix.os == 'ubuntu-latest'
+        run: just test_sanitize address

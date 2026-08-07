@@ -9,6 +9,39 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-07
+
+### Fixed
+
+- `ols.json` is now gitignored. The README and the `ols-config` recipe both told you to ignore it —
+  it holds a machine-specific absolute path to your collection — but `.gitignore` never listed it,
+  so the first `just ols-config` left a file staged for commit that would break every other clone.
+
+- `.gitignore` and `.gitattributes` covered the Windows artifact names only (`.exe`, `.pdb`, `.obj`,
+  `.lib`, `.exp`), so on Linux and macOS an `odin build -build-mode:obj|shared|static` left `.o`,
+  `.so`, `.dylib` and `.a` files untracked-but-visible, and a `-debug` build on macOS left a `.dSYM`
+  bundle. `.dll` was missing from `.gitignore` despite `.gitattributes` already treating it as
+  binary. Both lists now carry the whole matrix, annotated with which extension each platform
+  produces for which build mode. The default executable is still uncatchable on Linux and macOS,
+  where it takes the name of the package directory — the skeleton avoids it by writing `main.exe` on
+  every platform.
+
+### Added
+
+- CI runs `just sanitize address` and `just test_sanitize address` on Linux. The skeleton ships five
+  sanitizer recipes and the README recommends them, but nothing proved they still compiled — a
+  broken flag would have been found by whoever first reached for one. Linux only: AddressSanitizer
+  is the one of the three with broad support, and it is the last pair of steps in the job so a
+  missing ASan runtime cannot cut short the scaffold and doctor checks that gate a release.
+
+- Crash dumps (`core.<pid>`, `vgcore.*`) and OS droppings (`.DS_Store`, `Thumbs.db`) are ignored.
+  The dumps matter here because the skeleton ships sanitizer recipes and a segfault handler.
+
+- `tools/skel/templates.odin` and the two `.sublime-snippet` files are marked
+  `linguist-generated=true`, so GitHub collapses their diffs and drops them from the repository's
+  language statistics. All three are generated copies; without this a regenerated listing buries the
+  real change in a review.
+
 ## [0.2.0] - 2026-08-07
 
 ### Added
@@ -106,7 +139,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.2.0...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.2.1...HEAD
+[0.2.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.2.1
 [0.2.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.2.0
 [0.1.2]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.1.2
 [0.1.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.1.1

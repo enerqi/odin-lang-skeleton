@@ -18,11 +18,26 @@
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
 
-# Never touch the contents of these.
+# Never touch the contents of these. Everything here is gitignored, so this only matters for a file
+# committed deliberately or force-added - but that is exactly the case where `* text=auto eol=lf`
+# above would otherwise corrupt it. Kept in step with .gitignore's build-artifact list, which spells
+# out which extension belongs to which platform.
 *.exe binary
 *.pdb binary
 *.lib binary
 *.dll binary
 *.obj binary
+*.o binary
+*.so binary
+*.dylib binary
+*.a binary
 *.bc binary
 *.spall binary
+
+# Generated files: `tools/skel/templates.odin` comes from `just embed`, the two snippets from
+# `just snippets`. Marking them collapses their diffs by default on GitHub and keeps them out of the
+# repository's language statistics, so a regenerated listing does not bury the real change in a
+# review. CI (`embed-check`, `snippets-check`) is what actually enforces they stay current.
+tools/skel/templates.odin linguist-generated=true
+.sublime/Just-Odin.sublime-snippet linguist-generated=true
+.sublime/Odin-skeleton.sublime-snippet linguist-generated=true

@@ -244,6 +244,51 @@ project before assuming. `-lto` is also a hard conflict rather than a preference
 ODIN_LINKER=lld just run_release -lto:thin
 ```
 
+## Build-time options
+
+`main.odin` carries a few `#config` switches, documented in full where they are declared. Two are
+worth knowing before you need them, because they change what a build costs.
+
+**`-define:TRACKING_ALLOCATOR=off|basic|backtrace`** — how allocations are tracked. Defaults to
+`basic` in a `-debug` build and `off` otherwise, so leaks are reported in the builds you debug and
+nothing is paid in the builds you measure. Measured over 200k allocations:
+
+| value | allocator | per allocation | per live allocation |
+| --- | --- | --- | --- |
+| `off` | the raw allocator | ~44 ns | — |
+| `basic` | `mem.Tracking_Allocator` | ~599 ns | +72 bytes |
+| `backtrace` | `trace.Tracking_Allocator` | ~1385 ns | +208 bytes |
+
+`basic` reports leaks and bad frees at the line that called `make`. `backtrace` records a stack per
+allocation as well, which is what tells you *which* caller of a shared helper leaked rather than just
+naming the helper — worth it during a leak hunt, not before one. Both tracked modes take a mutex on
+every alloc and free, so the cost lands on allocation-heavy and multi-threaded code and is close to
+invisible for a program that allocates at startup and then works out of arenas. Override in either
+direction; `-define:TRACKING_ALLOCATOR=backtrace` on a release build suits a leak that only
+reproduces optimized.
+
+**`-define:SPALL_ENABLE=true`** — emit a [spall](https://github.com/colrdavidson/spall-web) profiling
+trace to `trace.spall`, viewable in the browser. Off by default and adds a couple of seconds to the
+run, so it is a switch you flip for one profiling session rather than leave on.
+
+Backtraces on asserts and segfaults need no define — they are on by default and cost nothing until
+something actually fails. Set `ODIN_BACKTRACE=0` to silence them for a run. Symbol names and line
+numbers come from the debug info, so a `-debug` build gives a readable trace where a release build
+prints bare `0x...` addresses.
+
+**Timing a run** needs no define either — `just --time <recipe>` prints how long the recipe took
+(`JUST_TIME=true` as an env var; note it wants `true`, not `1`):
+
+```
+just --time rerun          ---> rerun_debug completed in 0.159s
+```
+
+Time a `rerun_*` rather than a `run_*`. Odin has no build cache, so a `run_*` recipe recompiles every
+time and its timing is mostly the compiler — roughly 0.5s of compile against 0.16s of run for a
+hello-world here. Note that any external measurement includes process startup, which was ~31ms on
+this machine, so for sub-second work put `time.now()` / `time.since` around the specific phase you
+care about instead, or reach for the spall profiler above.
+
 ## [Sublime Text](https://www.sublimetext.com/) editor specific files
 
 The `OdinJustTarget.sublime-build` file is an example [sublime build file](https://www.sublimetext.com/docs/build_systems.html). Delete it if no developer is using sublime text.

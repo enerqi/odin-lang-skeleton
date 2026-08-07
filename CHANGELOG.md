@@ -9,6 +9,119 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-07
+
+### Changed
+
+- Backtraces now come from `core:debug/trace` instead of the out-of-tree
+  [laytan/back](https://github.com/laytan/back). The package was upstreamed into the standard library
+  by the same author, so this is the same implementation under renamed APIs — with the sibling
+  `../back` checkout requirement gone. That checkout was the only reason the feature shipped disabled
+  behind a commented-out import.
+
+  It also removes a dependency that had become actively dangerous: merely linking the current `back`
+  into an `-o:speed` build without `-debug` segfaulted before `main`'s first statement, on any
+  linker, with no calls into it at all. `core:debug/trace` was exercised at `-o:none`, `-o:minimal`,
+  `-o:speed` and `-o:speed -debug` and never crashed; without debug info it degrades to bare
+  `0x...` addresses rather than failing.
+
+- **Backtraces on asserts and segfaults are now on by default and need no define.** They cost nothing
+  until the program is already dying — a stack is captured at an assert or a fault, never during
+  normal work — so the compile-time flag they used to share bought nothing. Set `ODIN_BACKTRACE` to
+  `0`, `false` or `off` to turn them off for a run, in the spirit of `RUST_BACKTRACE` but defaulting
+  on, since the audience for a skeleton is whoever is developing the program rather than whoever is
+  running a shipped binary. Symbol names still require `-debug`.
+
+- **BREAKING: `BACKTRACE_ENABLE` and `TRACKING_ALLOCATOR_ENABLE` are replaced by one three-state
+  `-define:TRACKING_ALLOCATOR=off|basic|backtrace`.** Two booleans described four combinations of
+  which only three meant anything — `TRACKING_ALLOCATOR_ENABLE=false` with
+  `TRACKING_ALLOCATOR_BACKTRACE=true` compiled silently and tracked nothing, with no diagnostic. One
+  setting cannot express that state, and a misspelled value now fails at compile time with
+  `#panic("TRACKING_ALLOCATOR must be \"off\", \"basic\" or \"backtrace\"")` rather than quietly
+  selecting the `off` arm.
+
+  Measured per allocation, 200k × 32 bytes:
+
+  | value | allocator | cost |
+  | --- | --- | --- |
+  | `off` | the raw allocator | ~44 ns |
+  | `basic` | `mem.Tracking_Allocator` | ~599 ns (13.6x), +72 bytes per live allocation |
+  | `backtrace` | `trace.Tracking_Allocator` | ~1385 ns (31x), +208 bytes per live allocation |
+
+  `backtrace` buys caller attribution: `basic` reports every leak from a shared helper at the same
+  `#caller_location`, while the capture says *which* caller asked for the memory. Both tracked modes
+  also take a mutex on every alloc and free, so the cost lands hardest on allocation-heavy and
+  multi-threaded code and is close to invisible for a program that allocates at startup and then
+  works out of arenas.
+
+- **The tracking allocator now defaults to `basic` under `-debug` and `off` otherwise**, instead of
+  being unconditionally on. Previously `run_release` and `run_release_nochecks` — the recipes whose
+  entire purpose is measuring — ran with a 13.6x allocation tax and a lock in the middle of it.
+  Diagnostics now follow `-debug`, the same line the backtrace symbols already fell on, and the
+  define still overrides in both directions: `-define:TRACKING_ALLOCATOR=backtrace` on a release
+  build is exactly right for a leak that only reproduces optimized.
+
+  The two-branch structure is kept rather than collapsed onto one always-capturing path, so the
+  default build keeps the cheap `mem.Tracking_Allocator`. The branch has to be a compile-time `when`
+  regardless: the two arms return different types (`^mem.Tracking_Allocator` vs
+  `^trace.Tracking_Allocator`).
+
+### Removed
+
+- **`MIMALLOC_ENABLE`**, its `when` block, its doc bullet and the commented-out
+  `// import mi "../odin-mimalloc/mimalloc"`. It shared the flaw this release removed from `back`: a
+  define whose feature could not work without the reader first cloning a sibling repository the
+  skeleton has no way to provide. A scaffolded project got a switch that did nothing until it was
+  wired up by hand, which is the opposite of what a skeleton is for.
+
+  [odin-lang/Odin#6909](https://github.com/odin-lang/Odin/pull/6909) ("feoramalloc") would land a
+  faster allocator directly in `base:runtime` as the default heap — no import to swap, no
+  `context.allocator` line to write, the default simply gets faster. That makes the block redundant
+  by a second route, though the removal does not depend on it merging. If a project wants mimalloc
+  specifically, one import and one assignment in `main` is a smaller thing to write than a dead
+  define is to carry.
+
+- **`TIME_PROGRAM_DURATION_ENABLE`**, along with `log_program_duration` and the `core:time` import —
+  about fifteen lines of `main.odin` replaced by a flag just already has. `just --time <recipe>`
+  reports a recipe's duration (`JUST_TIME=true` as an env var, which wants `true` rather than `1`),
+  and the `rerun_*` family exists precisely so that timing excludes the compile Odin has no cache to
+  avoid.
+
+  The removed number was also easy to over-trust. It measured only the inside of `main`, deliberately
+  stopping before profiler and allocator teardown: 42.3µs for a hello-world whose process took ~31ms
+  of wall clock to start and stop, so ~0.1% of the real cost. Anything long enough for that gap not
+  to matter is long enough for `just --time` to answer the same question with no code, and anything
+  shorter wants `time.now()` / `time.since` around the specific phase, or the spall profiler — both
+  better targeted than a whole-of-`main` figure.
+
+### Added
+
+- `register_segfault_handler` at the bottom of `main.odin` — the one thing `core:debug/trace` does
+  not provide. Derived from back's handlers (MIT, © 2023 Laytan Laats) and rewritten against
+  `trace.capture` / `resolve` / `print`. `SetUnhandledExceptionFilter` on Windows, `SIGSEGV` on
+  POSIX, and neither branch on wasm/freestanding, where it compiles to a no-op. It formats its trace
+  through an arena over a 16 KiB *stack* buffer: the usual reason to be in a segfault handler is heap
+  corruption, and calling the global allocator there turns a reported crash into a second crash
+  inside the handler.
+
+  It earns its place by covering the failures that otherwise print *nothing at all* — a nil deref or
+  a divide by zero exits with a bare code and no output. Asserts and type assertions already trace
+  through `trace.assertion_failure_proc`, and a bounds check prints its own `file(line:col)`.
+
+  Kept in `main.odin` behind `when ODIN_OS == ...` rather than in `#+build`-tagged files, so a
+  scaffolded project stays a single `.odin` file. The cost is importing `core:sys/windows` and
+  `core:sys/posix` in every build and three `_ ::` lines to stop the off-platform one failing the
+  unused-import vet check. Verified clean under the full lint flags for `windows`, `linux_amd64` and
+  `darwin_arm64`.
+
+### Fixed
+
+- A trap for anyone adapting the operational setup, now documented in `main.odin` where it bites:
+  Odin's `context` is scope-local, so `if cond { context.assertion_failure_proc = ... }` reverts when
+  the block exits and has no effect on anything `main` calls afterwards. The old `when` form was
+  immune — `when` is compile-time and introduces no scope — so the hazard only appeared when the
+  check became a runtime one. The assignment now sits in `main`'s own scope.
+
 ## [0.3.1] - 2026-08-07
 
 ### Changed
@@ -216,7 +329,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.3.1...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.4.0...HEAD
+[0.4.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.0
 [0.3.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.3.1
 [0.3.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.3.0
 [0.2.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.2.1

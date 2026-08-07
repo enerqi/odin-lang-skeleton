@@ -678,13 +678,11 @@ _snippets mode:
 		odin = field_sub(f.read(), [
 			("package main", "package ${1:main}"),
 			('fmt.println("Hello")', '${2:fmt.println("Hello")}'),
-			("#config(TIME_PROGRAM_DURATION_ENABLE, false)", "#config(TIME_PROGRAM_DURATION_ENABLE, ${3:false})"),
-			("#config(MIMALLOC_ENABLE, false)", "#config(MIMALLOC_ENABLE, ${4:false})"),
-			("#config(SPALL_ENABLE, false)", "#config(SPALL_ENABLE, ${5:false})"),
-			("#config(BACKTRACE_ENABLE, false)", "#config(BACKTRACE_ENABLE, ${6:false})"),
-			("#config(TRACKING_ALLOCATOR_ENABLE, true)", "#config(TRACKING_ALLOCATOR_ENABLE, ${7:true})"),
-			('// import mi "../odin-mimalloc/mimalloc"', '$8// import mi "../odin-mimalloc/mimalloc"'),
-			('// import back "../back"', '$9// import back "../back"'),
+			("#config(SPALL_ENABLE, false)", "#config(SPALL_ENABLE, ${3:false})"),
+			(
+				"#config(TRACKING_ALLOCATOR, TRACKING_ALLOCATOR_DEFAULT)",
+				'#config(TRACKING_ALLOCATOR, ${4:TRACKING_ALLOCATOR_DEFAULT})',
+			),
 		])
 
 	with open("justfile", encoding="utf-8") as f:

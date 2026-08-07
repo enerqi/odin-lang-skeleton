@@ -108,7 +108,8 @@ test_strip_on_the_real_gitattributes :: proc(t: ^testing.T) {
 // gets the H1.
 @(test)
 test_project_readme_demotes_headings :: proc(t: ^testing.T) {
-	input := `# Skeleton
+	input :=
+		`# Skeleton
 
 ## Quick start
 
@@ -130,21 +131,13 @@ just run
 	testing.expect(t, strings.contains(got, "\n## Skeleton\n"), "H1 should become H2")
 	testing.expect(t, strings.contains(got, "\n### Quick start\n"), "H2 should become H3")
 	testing.expect(t, strings.contains(got, "\n#### Deep\n"), "H3 should become H4")
-	testing.expect(
-		t,
-		strings.contains(got, "\n###### Already at the limit\n"),
-		"H6 must not grow a seventh #",
-	)
+	testing.expect(t, strings.contains(got, "\n###### Already at the limit\n"), "H6 must not grow a seventh #")
 	testing.expect(
 		t,
 		strings.contains(got, "\n# not a heading, this is a shell comment\n"),
 		"a # inside a fenced block must not be demoted",
 	)
-	testing.expect(
-		t,
-		strings.contains(got, "\n#no-space-so-not-a-heading\n"),
-		"# without a space is not a heading",
-	)
+	testing.expect(t, strings.contains(got, "\n#no-space-so-not-a-heading\n"), "# without a space is not a heading")
 }
 
 // The real README must come out with exactly one H1 - the project's - and nothing left at the level
@@ -176,18 +169,10 @@ test_project_readme_on_the_real_readme :: proc(t: ^testing.T) {
 	)
 	// Every heading that survives the strip is an H2 - the H3s all live in skeleton-only sections -
 	// so this is the deepest level the scaffolded README can exercise.
-	testing.expect(
-		t,
-		strings.contains(got, "\n### Choosing a linker\n"),
-		"an H2 should now be an H3",
-	)
+	testing.expect(t, strings.contains(got, "\n### Choosing a linker\n"), "an H2 should now be an H3")
 	// Anchors come from heading text, not level, so an in-document link and the heading it points
 	// at must both still be there - and matched to each other - after the demotion.
-	testing.expect(
-		t,
-		strings.contains(got, "(#language-server-configuration)"),
-		"anchor link damaged",
-	)
+	testing.expect(t, strings.contains(got, "(#language-server-configuration)"), "anchor link damaged")
 	testing.expect(
 		t,
 		strings.contains(got, "\n### Language Server Configuration\n"),

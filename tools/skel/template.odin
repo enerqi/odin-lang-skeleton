@@ -170,14 +170,7 @@ in this binary to drift out of step with the justfile.
 Returns `ok = false` when the anchor is missing, which means the justfile changed shape - the same
 "fail loudly rather than silently skip" contract `field_sub` has in the snippet generator.
 */
-set_linker_default :: proc(
-	text: string,
-	value: string,
-	allocator := context.allocator,
-) -> (
-	result: string,
-	ok: bool,
-) {
+set_linker_default :: proc(text: string, value: string, allocator := context.allocator) -> (result: string, ok: bool) {
 	start := strings.index(text, LINKER_ASSIGN)
 	if start < 0 {
 		return "", false
@@ -189,10 +182,7 @@ set_linker_default :: proc(
 		line_len = len(rest)
 	}
 
-	return strings.concatenate(
-		{text[:start], LINKER_ASSIGN, "\"", value, "\")", rest[line_len:]},
-		allocator,
-	), true
+	return strings.concatenate({text[:start], LINKER_ASSIGN, "\"", value, "\")", rest[line_len:]}, allocator), true
 }
 
 ZLIB_LICENSE_BODY :: `

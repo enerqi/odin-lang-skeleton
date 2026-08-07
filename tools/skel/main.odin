@@ -16,7 +16,8 @@ HOMEPAGE :: "https://github.com/enerqi/odin-lang-skeleton"
 
 // A released binary is downloaded on its own, with no repository and no README next to it, so this
 // has to answer "what is this and what do I type" without anything else to hand.
-USAGE :: `odin-skel - scaffold a new Odin project
+USAGE ::
+	`odin-skel - scaffold a new Odin project
 
 Creates a ready-to-build Odin project: a justfile with debug/release build tiers, editor config,
 .gitignore/.gitattributes, and Sublime Text build systems. The project template is compiled into
@@ -47,7 +48,9 @@ After scaffolding, the project is driven by just (https://just.systems):
   just lint         type check, vet and style check
   just --list       every available recipe
 
-Homepage: ` + HOMEPAGE + `
+Homepage: ` +
+	HOMEPAGE +
+	`
 `
 
 main :: proc() {

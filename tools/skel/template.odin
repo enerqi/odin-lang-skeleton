@@ -42,8 +42,10 @@ been copied into a real project.
 Other marker blocks - `snippet-exclude` today - keep their body, but their marker lines are dropped
 because they only mean something in the skeleton repo.
 
-Applied to the justfile and to README.md. The README needed it because it is copied verbatim and was
-documenting recipes (`just new`, `just snippets`) that the stripped justfile no longer contains.
+Applied to the justfile, README.md and .gitattributes. The README needed it because it is copied
+verbatim and was documenting recipes (`just new`, `just snippets`) that the stripped justfile no
+longer contains; .gitattributes because its `linguist-generated` rules name `tools/`, which a
+scaffolded project never receives.
 */
 strip_skeleton_only :: proc(text: string, allocator := context.allocator) -> string {
 	b := strings.builder_make(allocator)
@@ -77,6 +79,120 @@ strip_skeleton_only :: proc(text: string, allocator := context.allocator) -> str
 	// `.rstrip("\n") + "\n"`.
 	out := strings.trim_right(strings.to_string(b), "\n")
 	return strings.concatenate({out, "\n"}, allocator)
+}
+
+/*
+Give the scaffolded README the project's own H1 and demote everything it already had.
+
+The copied README is reference material for the tooling - build tiers, linker choice, editor setup -
+not the project's own front page. Left as-is it opens with "# Odin Programming Language Project
+Skeleton", which is the wrong title for somebody else's project and leaves nowhere obvious to write
+what the project actually *is*. So the whole document drops one level and a fresh H1 carrying the
+project name goes on top, with blank lines under it for the description the author will want to add.
+
+Anchor links survive this untouched: markdown anchors come from the heading text, not its level, so
+`[Choosing a linker](#choosing-a-linker)` still resolves after the heading becomes an H3.
+
+Only ATX headings (`# foo`) are touched, and only outside fenced code blocks - the README is full of
+```sh blocks, and a `# comment` inside one is shell, not a heading. The skeleton's own README bottoms
+out at H3 so nothing is near markdown's H6 limit, but a heading already at H6 is left alone rather
+than growing a seventh `#`, which renders as literal text.
+*/
+project_readme :: proc(text: string, project: string, allocator := context.allocator) -> string {
+	b := strings.builder_make(allocator)
+	defer strings.builder_destroy(&b)
+
+	strings.write_string(&b, "# ")
+	strings.write_string(&b, project)
+	strings.write_string(&b, "\n\n\n")
+
+	in_fence := false
+	rest := text
+	for len(rest) > 0 {
+		line: string
+		if i := strings.index_byte(rest, '\n'); i >= 0 {
+			line, rest = rest[:i + 1], rest[i + 1:]
+		} else {
+			line, rest = rest, ""
+		}
+
+		if strings.has_prefix(line, "```") {
+			in_fence = !in_fence
+		} else if !in_fence && strings.has_prefix(line, "#") {
+			level := 0
+			for level < len(line) && line[level] == '#' {
+				level += 1
+			}
+			// `#` must be followed by a space to be a heading rather than `#!/bin/sh` or `#include`.
+			if level < 6 && level < len(line) && line[level] == ' ' {
+				strings.write_byte(&b, '#')
+			}
+		}
+		strings.write_string(&b, line)
+	}
+
+	return strings.clone(strings.to_string(b), allocator)
+}
+
+// The values `odin build -linker:` accepts. Kept in the same order the compiler lists them so the
+// error message below reads like `odin -help`.
+LINKERS :: []string{"default", "lld", "radlink", "mold"}
+
+// The justfile line `set_linker_default` rewrites. Matching on the assignment rather than the whole
+// expression means the per-OS default can be reworded without breaking scaffolding.
+LINKER_ASSIGN :: "linker := env_var_or_default(\"ODIN_LINKER\", "
+
+@(require_results)
+valid_linker :: proc(value: string) -> bool {
+	for candidate in LINKERS {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+
+/*
+Replace the justfile's per-OS linker default with an unconditional `value`.
+
+The skeleton ships a default that depends on the platform it is building on:
+
+	linker := env_var_or_default("ODIN_LINKER", if os() == "windows" { "radlink" } else { "default" })
+
+`odin-skel new --linker=mold` turns that into a flat choice the whole project agrees on:
+
+	linker := env_var_or_default("ODIN_LINKER", "mold")
+
+Only the assignment is rewritten. The comment block above it documents all four values and the
+ODIN_LINKER override, which stays true either way, so there is no second copy of that prose living
+in this binary to drift out of step with the justfile.
+
+Returns `ok = false` when the anchor is missing, which means the justfile changed shape - the same
+"fail loudly rather than silently skip" contract `field_sub` has in the snippet generator.
+*/
+set_linker_default :: proc(
+	text: string,
+	value: string,
+	allocator := context.allocator,
+) -> (
+	result: string,
+	ok: bool,
+) {
+	start := strings.index(text, LINKER_ASSIGN)
+	if start < 0 {
+		return "", false
+	}
+	// The assignment runs to the end of its line; just has no line continuations to worry about.
+	rest := text[start:]
+	line_len := strings.index_byte(rest, '\n')
+	if line_len < 0 {
+		line_len = len(rest)
+	}
+
+	return strings.concatenate(
+		{text[:start], LINKER_ASSIGN, "\"", value, "\")", rest[line_len:]},
+		allocator,
+	), true
 }
 
 ZLIB_LICENSE_BODY :: `

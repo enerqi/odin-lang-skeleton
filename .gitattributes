@@ -34,10 +34,30 @@
 *.bc binary
 *.spall binary
 
+# Editor configuration, not project source. Linguist reads `.sublime-build` / `.sublime-project` as
+# JSON with Comments and `.sublime-snippet` as XML, so in a repository this small they visibly skew
+# the language bar away from the Odin the project is actually written in. `vendored` rather than
+# `generated`: these are hand-written, they just are not the project's own code - which stays true
+# after `odin-skel new` copies them, so this rule survives into a scaffolded project.
+#
+# The trailing `**` is load-bearing. gitattributes borrows gitignore's pattern syntax but not its
+# directory semantics: a pattern matching a directory does NOT recursively cover the paths inside it,
+# so a bare `.sublime/` would apply to nothing at all.
+.sublime/** linguist-vendored=true
+
+# >>> skeleton-only
 # Generated files: `tools/skel/templates.odin` comes from `just embed`, the two snippets from
 # `just snippets`. Marking them collapses their diffs by default on GitHub and keeps them out of the
 # repository's language statistics, so a regenerated listing does not bury the real change in a
 # review. CI (`embed-check`, `snippets-check`) is what actually enforces they stay current.
+#
+# All three are true of this repository only, which is why the block is stripped from a scaffolded
+# project: `tools/` is not copied at all, and while the snippets are, the `snippets` recipe that
+# generates them is itself skeleton-only - so over there they are ordinary checked-in files and
+# `linguist-generated` would be a false claim. They keep the `linguist-vendored` above either way,
+# which is what actually keeps them out of the language statistics; this block adds the "regenerate,
+# do not hand-edit" signal on top, and only where it is honest.
 tools/skel/templates.odin linguist-generated=true
 .sublime/Just-Odin.sublime-snippet linguist-generated=true
 .sublime/Odin-skeleton.sublime-snippet linguist-generated=true
+# <<< skeleton-only

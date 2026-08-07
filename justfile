@@ -9,6 +9,45 @@ set unstable  # [script("python")] feature - https://github.com/casey/just/issue
 main_name := "main.exe"
 test_main_name := "test-main.exe"
 
+# Which linker Odin hands the object files to. `odin build -linker:` accepts exactly four values:
+#
+#   default   let Odin choose - MSVC `link.exe` on Windows. The portable answer, and what every
+#             platform used before this line existed.
+#   lld       LLVM's linker. Available wherever the toolchain is.
+#   radlink   RAD Debugger's linker. Windows only, and it ships *with* the Odin toolchain, so it
+#             needs no install - which is why it is the default here. Odin has no build cache and
+#             relinks on every `just run`, so the link step is a cost you pay on each iteration.
+#   mold      Linux only, and NOT bundled - `apt install mold` (or equivalent) first.
+#
+# When the default is the better pick: neither radlink nor mold is an *incremental* linker, while
+# MSVC `link.exe` is. Combined with `-use-separate-modules` (and `-lto`, which implies it), an
+# incremental relink of one changed module can beat a full link that is individually faster. That
+# combination is not the default shape of an Odin build - single-module builds have little for LTO
+# to chew on, and statically linked external C libraries do not get LTO regardless - so it is worth
+# measuring on your own project rather than assuming either way.
+#
+# `-lto` is also a hard conflict rather than a preference: on Windows it *requires* `-linker:lld`
+# and exits 1 with "-lto:thin on Windows requires -linker:lld" if anything else is pinned. Use the
+# env var below to get out of the way of it:
+#
+#     ODIN_LINKER=lld just run_release -lto:thin
+#
+# Odin rejects a linker its platform does not support rather than quietly falling back: asking for
+# mold on Windows exits 1 with "'mold' linker is not supported on this platform" and produces no
+# binary. That is the behaviour you want from a per-machine setting, so nothing here second-guesses
+# it.
+#
+# The default below is what `odin-skel new --linker=<value>` rewrites. The env var overrides it for
+# a single command, without editing this file - for the LTO case above, or for a machine that has
+# mold when the project default does not assume it:
+#
+#     ODIN_LINKER=lld just run
+#
+# It is an env var rather than a recipe argument because `odin` errors on a repeated flag
+# ("Previous flag set: 'linker'"), so passing `-linker:` through a recipe's `*args` would collide
+# with the one added below.
+linker := env_var_or_default("ODIN_LINKER", if os() == "windows" { "radlink" } else { "default" })
+
 # SKELETON: name your extra collection (the `xyz:` prefix in `import "xyz:pkg"`) and where it lives.
 # collection_path is read from an env var so the absolute path stays out of git; rename both to suit.
 collection_name := "xyz"
@@ -57,7 +96,7 @@ lint *args:
 # ---
 # run with debug build
 run_debug *args: mktarget_dirs
-	odin run . -debug -microarch:native -keep-executable -out:target/debug/{{main_name}} {{args}}
+	odin run . -debug -microarch:native -keep-executable -linker:{{linker}} -out:target/debug/{{main_name}} {{args}}
 
 alias run := run_debug
 
@@ -67,7 +106,7 @@ alias run := run_debug
 # ---
 # run with debug info and light optimizations
 run_fast_debug *args: mktarget_dirs
-	odin run . -debug -o:minimal -microarch:native -keep-executable -out:target/fast_debug/{{main_name}} {{args}}
+	odin run . -debug -o:minimal -microarch:native -keep-executable -linker:{{linker}} -out:target/fast_debug/{{main_name}} {{args}}
 
 # Release codegen with debug info retained: for profiling and for chasing bugs that only appear under
 # optimization. Slowest to compile, and the debugger will jump around inlined/reordered code.
@@ -75,11 +114,11 @@ run_fast_debug *args: mktarget_dirs
 # ---
 # run with full optimizations AND debug info
 run_release_debug *args: mktarget_dirs
-	odin run . -debug -o:speed -microarch:native -keep-executable -out:target/release_debug/{{main_name}} {{args}}
+	odin run . -debug -o:speed -microarch:native -keep-executable -linker:{{linker}} -out:target/release_debug/{{main_name}} {{args}}
 
 # run with optimizations (-keep-executable so `rerun_release` can skip recompiling)
 run_release *args: mktarget_dirs
-	odin run . -o:speed -microarch:native -keep-executable -out:target/release/{{main_name}} {{args}}
+	odin run . -o:speed -microarch:native -keep-executable -linker:{{linker}} -out:target/release/{{main_name}} {{args}}
 
 # `run_release` plus every runtime safety check compiled out: `-no-bounds-check` (slice/array indexing),
 # `-disable-assert` (the built-in `assert`) and `-no-type-assert` (union/any type assertions). Those
@@ -90,7 +129,7 @@ run_release *args: mktarget_dirs
 # ---
 # run with optimizations and ALL runtime safety checks removed
 run_release_nochecks *args: mktarget_dirs
-	odin run . -o:speed -no-bounds-check -disable-assert -no-type-assert -microarch:native -keep-executable -out:target/release_nochecks/{{main_name}} {{args}}
+	odin run . -o:speed -no-bounds-check -disable-assert -no-type-assert -microarch:native -keep-executable -linker:{{linker}} -out:target/release_nochecks/{{main_name}} {{args}}
 
 # `address` (ASan) catches out-of-bounds accesses and use-after-free; `memory` catches reads of
 # uninitialized memory; `thread` catches data races. Only `address` is widely supported - `memory` and
@@ -101,13 +140,13 @@ run_release_nochecks *args: mktarget_dirs
 # ---
 # run a debug build under a sanitizer (address | memory | thread)
 sanitize kind="address" *args: mktarget_dirs
-	odin run . -debug -sanitize:{{kind}} -out:target/debug/sanitize-{{kind}}-{{main_name}} {{args}}
+	odin run . -debug -sanitize:{{kind}} -linker:{{linker}} -out:target/debug/sanitize-{{kind}}-{{main_name}} {{args}}
 
 # same sanitizer options as `sanitize`; see its notes for platform support.
 # ---
 # run the tests under a sanitizer (address | memory | thread)
 test_sanitize kind="address" *args: mktarget_dirs
-	odin test . -debug -file -sanitize:{{kind}} -out:target/debug/sanitize-{{kind}}-{{test_main_name}} {{args}}
+	odin test . -debug -file -sanitize:{{kind}} -linker:{{linker}} -out:target/debug/sanitize-{{kind}}-{{test_main_name}} {{args}}
 
 # Odin has no build cache, so a plain `run` always rebuilds. Requires a prior `run_debug`/`run` build.
 # ---
@@ -135,11 +174,11 @@ rerun_release_nochecks *args:
 
 # run all tests
 test *args: mktarget_dirs
-	odin test . -debug -file -microarch:native -out:target/debug/{{test_main_name}} {{args}}
+	odin test . -debug -file -microarch:native -linker:{{linker}} -out:target/debug/{{test_main_name}} {{args}}
 
 # run one named test
 test1 name *args: mktarget_dirs
-	odin test . -debug -file -microarch:native -test-name:{{name}} -out:target/debug/{{test_main_name}} {{args}}
+	odin test . -debug -file -microarch:native -test-name:{{name}} -linker:{{linker}} -out:target/debug/{{test_main_name}} {{args}}
 
 # simple delete of all debug databases and executables in the target directory
 [unix]
@@ -159,7 +198,7 @@ clean:
 
 # build with some verbose diagnostics
 diagnose *args: mktarget_dirs
-	odin build . -debug -microarch:native -show-more-timings -show-debug-messages -show-timings -out:target/debug/{{main_name}} {{args}}
+	odin build . -debug -microarch:native -show-more-timings -show-debug-messages -show-timings -linker:{{linker}} -out:target/debug/{{main_name}} {{args}}
 
 
 # Cross platform: Sublime then offers them in every window. The `.sublime-project` file is
@@ -313,18 +352,20 @@ lint_skel *args:
 
 # run the odin-skel tool's tests
 test_skel *args: mktarget_dirs
-	odin test tools/skel -debug -out:target/debug/{{skel_test_name}} {{args}}
+	odin test tools/skel -debug -linker:{{linker}} -out:target/debug/{{skel_test_name}} {{args}}
 
 # The version is stamped in at build time; an unstamped build reports "dev". Release builds pass
 # `-define:SKEL_VERSION=x.y.z` (see tools/DESIGN.md).
 # ---
 # build the odin-skel tool into target/debug/
 build_skel *args: mktarget_dirs
-	odin build tools/skel -debug -out:target/debug/{{skel_name}} {{args}}
+	odin build tools/skel -debug -linker:{{linker}} -out:target/debug/{{skel_name}} {{args}}
 
 # What CI publishes: optimized, no debug info, and stamped with the tag it was built from.
 # Deliberately NOT -microarch:native - a published binary has to run on any machine of that
-# architecture, not just the builder.
+# architecture, not just the builder. Also deliberately NOT `-linker:{{linker}}`: link speed is
+# worth nothing on a once-per-tag build, and the one artifact that cannot be quietly rebuilt if a
+# linker turns out to have a quirk is the one users download.
 #   just build_skel_release -define:SKEL_VERSION=1.2.3
 # ---
 # build an optimized odin-skel into target/release/
@@ -334,10 +375,13 @@ build_skel_release *args: mktarget_dirs
 # Thin wrapper: the scaffolding logic lives in the odin-skel binary and nowhere else, so the two
 # cannot drift (see tools/DESIGN.md, Decision 2). Build the binary first with `just build_skel`.
 # Usage:  just new ../my-new-project   or   just new ../dir projname
+#         just new ../dir projname --linker=mold
+# `flags` is a passthrough, so every odin-skel option works here without this recipe growing a
+# parameter per option.
 # ---
 # copy this skeleton into a new or empty directory
 [script("python")]
-new dest name="":
+new dest name="" *flags:
 	import os, subprocess, sys
 
 	binary = os.path.join("target", "debug", "{{skel_name}}")
@@ -348,6 +392,7 @@ new dest name="":
 	name = r"{{name}}"
 	if name:
 		argv.append(name)
+	argv.extend(r"""{{flags}}""".split())
 	raise SystemExit(subprocess.run(argv).returncode)
 
 

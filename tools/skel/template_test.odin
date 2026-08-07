@@ -74,6 +74,183 @@ test_strip_on_the_real_justfile :: proc(t: ^testing.T) {
 	testing.expect(t, !strings.contains(got, "# >>>"), "a marker line leaked")
 }
 
+// .gitattributes is the third stripped template. Its `linguist-generated` rules name `tools/`, which
+// a scaffolded project never receives, and claim the snippets are generated when the recipe that
+// generates them has itself been stripped. The line-ending rules underneath must survive - they are
+// the reason the file is copied at all.
+@(test)
+test_strip_on_the_real_gitattributes :: proc(t: ^testing.T) {
+	source := ""
+	for tmpl in TEMPLATES {
+		if tmpl.path == ".gitattributes" {
+			source = tmpl.data
+			break
+		}
+	}
+	testing.expect(t, source != "", ".gitattributes missing from TEMPLATES - run `just embed`")
+
+	got := strip_skeleton_only(source)
+	defer delete(got)
+
+	for gone in ([]string{"linguist-generated", "tools/skel"}) {
+		testing.expectf(t, !strings.contains(got, gone), "skeleton-only rule %q leaked", gone)
+	}
+	// `.sublime/**` is vendored, not generated, so unlike the rules above it must survive: a
+	// scaffolded project gets the same editor files and the same reason to keep them out of its
+	// language statistics.
+	for kept in ([]string{"* text=auto eol=lf", "*.ps1 text eol=crlf", "*.dylib binary", ".sublime/** linguist-vendored=true"}) {
+		testing.expectf(t, strings.contains(got, kept), "template rule %q was stripped", kept)
+	}
+	testing.expect(t, !strings.contains(got, "# >>>"), "a marker line leaked")
+}
+
+// Headings shift one level, a `#` that is shell rather than markdown is left alone, and the project
+// gets the H1.
+@(test)
+test_project_readme_demotes_headings :: proc(t: ^testing.T) {
+	input := `# Skeleton
+
+## Quick start
+
+` +
+		"```sh\n" +
+		`# not a heading, this is a shell comment
+just run
+` +
+		"```\n" +
+		`### Deep
+
+###### Already at the limit
+#no-space-so-not-a-heading
+`
+	got := project_readme(input, "myproj")
+	defer delete(got)
+
+	testing.expect(t, strings.has_prefix(got, "# myproj\n\n\n## Skeleton"), "title or spacing wrong")
+	testing.expect(t, strings.contains(got, "\n## Skeleton\n"), "H1 should become H2")
+	testing.expect(t, strings.contains(got, "\n### Quick start\n"), "H2 should become H3")
+	testing.expect(t, strings.contains(got, "\n#### Deep\n"), "H3 should become H4")
+	testing.expect(
+		t,
+		strings.contains(got, "\n###### Already at the limit\n"),
+		"H6 must not grow a seventh #",
+	)
+	testing.expect(
+		t,
+		strings.contains(got, "\n# not a heading, this is a shell comment\n"),
+		"a # inside a fenced block must not be demoted",
+	)
+	testing.expect(
+		t,
+		strings.contains(got, "\n#no-space-so-not-a-heading\n"),
+		"# without a space is not a heading",
+	)
+}
+
+// The real README must come out with exactly one H1 - the project's - and nothing left at the level
+// it had before.
+@(test)
+test_project_readme_on_the_real_readme :: proc(t: ^testing.T) {
+	source := ""
+	for tmpl in TEMPLATES {
+		if tmpl.path == "README.md" {
+			source = tmpl.data
+			break
+		}
+	}
+	testing.expect(t, source != "", "README.md missing from TEMPLATES - run `just embed`")
+
+	stripped := strip_skeleton_only(source)
+	defer delete(stripped)
+	got := project_readme(stripped, "myproj")
+	defer delete(got)
+
+	testing.expect(t, strings.has_prefix(got, "# myproj\n\n\n"), "the project H1 is missing")
+	// One `# ` at the very start and none after it: `count` sees the leading one via the "\n# "
+	// probe only if preceded by a newline, so the prefix check above covers the first.
+	testing.expect_value(t, strings.count(got, "\n# "), 0)
+	testing.expect(
+		t,
+		strings.contains(got, "\n## Odin Programming Language Project Skeleton\n"),
+		"the old H1 should now be an H2",
+	)
+	testing.expect(
+		t,
+		strings.contains(got, "\n#### Choosing a linker\n"),
+		"an H3 should now be an H4",
+	)
+	// Anchors come from heading text, not level, so an in-document link and the heading it points
+	// at must both still be there - and matched to each other - after the demotion.
+	testing.expect(
+		t,
+		strings.contains(got, "(#language-server-configuration)"),
+		"anchor link damaged",
+	)
+	testing.expect(
+		t,
+		strings.contains(got, "\n### Language Server Configuration\n"),
+		"the heading that anchor points at is missing or at an unexpected level",
+	)
+}
+
+@(test)
+test_valid_linker :: proc(t: ^testing.T) {
+	for good in LINKERS {
+		testing.expectf(t, valid_linker(good), "%q should be accepted", good)
+	}
+	// `gold` and `ld` are real linkers, just not ones Odin's `-linker:` takes - the likeliest wrong
+	// answer, and the one worth failing on rather than passing straight through to the compiler.
+	for bad in ([]string{"", "gold", "ld", "gnu-ld", "gcc", "Default", "RADLINK"}) {
+		testing.expectf(t, !valid_linker(bad), "%q should be rejected", bad)
+	}
+}
+
+// The `--linker` rewrite runs against the real embedded justfile, so a reworded default or a moved
+// line fails here rather than silently producing a project whose linker choice was ignored.
+@(test)
+test_set_linker_default_on_the_real_justfile :: proc(t: ^testing.T) {
+	source := ""
+	for tmpl in TEMPLATES {
+		if tmpl.path == "justfile" {
+			source = tmpl.data
+			break
+		}
+	}
+	testing.expect(t, source != "", "justfile missing from TEMPLATES - run `just embed`")
+
+	stripped := strip_skeleton_only(source)
+	defer delete(stripped)
+	testing.expect(
+		t,
+		strings.contains(stripped, "if os() == \"windows\""),
+		"the per-OS default should survive the skeleton-only strip",
+	)
+
+	got, ok := set_linker_default(stripped, "mold")
+	testing.expect(t, ok, "the `linker :=` anchor was not found")
+	defer delete(got)
+
+	testing.expect(
+		t,
+		strings.contains(got, "linker := env_var_or_default(\"ODIN_LINKER\", \"mold\")\n"),
+		"the pinned assignment was not written",
+	)
+	testing.expect(t, !strings.contains(got, "if os() =="), "the per-OS conditional survived")
+	// Only the one line may change: the recipes that consume {{linker}} and the comment block above
+	// the assignment both have to come through untouched.
+	testing.expect(t, strings.contains(got, "-linker:{{linker}} -out:"), "the recipes were damaged")
+	testing.expect(t, strings.contains(got, "ODIN_LINKER=lld just run"), "the comment block was damaged")
+	testing.expect_value(t, strings.count(got, "\n"), strings.count(stripped, "\n"))
+}
+
+// A justfile that no longer carries the anchor must report failure rather than quietly scaffolding a
+// project where `--linker` did nothing.
+@(test)
+test_set_linker_default_missing_anchor :: proc(t: ^testing.T) {
+	_, ok := set_linker_default("main_name := \"main.exe\"\n", "mold")
+	testing.expect(t, !ok, "a missing anchor must not report success")
+}
+
 @(test)
 test_zlib_license_shape :: proc(t: ^testing.T) {
 	got := zlib_license(2026)

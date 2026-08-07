@@ -9,6 +9,65 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-07
+
+### Fixed
+
+- `odin-skel new` no longer copies skeleton-only `.gitattributes` rules into a scaffolded project.
+  0.2.1 added `linguist-generated` markings for `tools/skel/templates.odin` and the two
+  `.sublime-snippet` files, but `.gitattributes` was copied verbatim, so every generated project got
+  a rule for `tools/` — a directory scaffolding never creates — alongside a comment citing `just
+  embed` and `just snippets`, recipes already stripped from its justfile. `.gitattributes` now joins
+  the justfile and README.md as a template whose `>>> skeleton-only` blocks are stripped, reusing the
+  marker mechanism those two already had rather than inventing a second one. Covered by a unit test
+  against the embedded copy and a leak check in CI's end-to-end scaffold step, both mirroring the
+  justfile's.
+
+### Added
+
+- Linker selection. A `linker` variable at the top of the justfile feeds `-linker:` to every recipe
+  that links, defaulting to `radlink` on Windows — it ships with the Odin toolchain, so it needs no
+  install — and to `default` elsewhere. Odin has no build cache and relinks on every `just run`, so
+  this is a cost paid on each iteration. `ODIN_LINKER=<value>` overrides it for a single command;
+  it is an environment variable rather than a recipe argument because `odin` errors on a repeated
+  flag, so a `-linker:` passed through a recipe's extra args would collide.
+
+  Not a free win in every configuration, and the justfile and README say so: neither radlink nor
+  mold is an *incremental* linker, while MSVC `link.exe` is, so with `-use-separate-modules` (which
+  `-lto` implies) an incremental relink of one changed module can beat a faster full link. Stock
+  Odin builds are single-module and give LTO little to work with, and statically linked external C
+  libraries do not get LTO regardless. `-lto` on Windows additionally *requires* `-linker:lld` and
+  exits 1 against anything else pinned, which is what the override exists for.
+
+- A scaffolded project's README now opens with its own `# <name>` H1 and two blank lines to write
+  into, with everything the skeleton carried demoted one level beneath it. The copied README is
+  reference material about the tooling, not the project's front page — left alone it titled someone
+  else's project "Odin Programming Language Project Skeleton" and offered nowhere obvious to say
+  what the project actually is. Only ATX headings outside fenced code blocks are touched, so a
+  `# comment` in a `sh` block stays shell; a heading already at H6 is left alone rather than growing
+  an invalid seventh `#`; and anchors are unaffected because markdown derives them from heading text
+  rather than level.
+
+- The README's task reference gained a `## Tasks` heading. `## Quick start` above it is
+  skeleton-only — it is about cloning and scaffolding — so without this the whole task list had no
+  heading of its own, and `Choosing a linker` sat two levels below its nearest ancestor in the
+  generated file.
+
+- `odin-skel new --linker=<default|lld|radlink|mold>` pins that linker for every platform in the
+  generated project, rewriting the justfile's default assignment. `--linker=v` and `--linker v` are
+  both accepted, the value is validated before anything touches the filesystem, and a justfile that
+  no longer carries the assignment fails the scaffold rather than silently ignoring the flag.
+  `just new` grew a flag passthrough so it works there too.
+
+- `.sublime/**` is marked `linguist-vendored=true`, keeping editor configuration out of the
+  repository's language statistics. Linguist reads `.sublime-build` / `.sublime-project` as JSON with
+  Comments and `.sublime-snippet` as XML, which visibly skews the language bar on a project this
+  small. `vendored` rather than `generated` because these are hand-written — they are simply not the
+  project's own code, and that stays true after `odin-skel new` copies them, so unlike the
+  `linguist-generated` rules this one is deliberately not skeleton-only. The trailing `**` is
+  load-bearing: `.gitattributes` borrows gitignore's pattern syntax but not its directory semantics,
+  so a bare `.sublime/` would silently match nothing.
+
 ## [0.2.1] - 2026-08-07
 
 ### Fixed
@@ -139,7 +198,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.2.1...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.3.0...HEAD
+[0.3.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.3.0
 [0.2.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.2.1
 [0.2.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.2.0
 [0.1.2]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.1.2

@@ -88,6 +88,38 @@ jobs:
               exit 1
             fi
           done
+          # .gitattributes is stripped too: its linguist rules name tools/, which is never copied.
+          for leaked in linguist-generated tools/skel skeleton-only; do
+            if grep -q "$leaked" .gitattributes; then
+              echo "skeleton-only content '$leaked' leaked into .gitattributes" >&2
+              exit 1
+            fi
+          done
+          grep -q "text=auto eol=lf" .gitattributes
+          # linguist-vendored is not skeleton-only - the editor files are copied, so it must survive.
+          grep -q "linguist-vendored=true" .gitattributes
+          # No --linker was passed, so the per-OS default must come through untouched.
+          grep -q 'if os() == "windows"' justfile
+
+      # The `--linker` path needs its own end-to-end run: the unit tests prove the justfile line is
+      # rewritten, but only an actual build proves the value survives into `odin` and links. lld is
+      # the one choice valid on all three runners - radlink is Windows-only and mold is Linux-only,
+      # so either would turn this into a per-OS special case for no extra coverage.
+      - name: scaffold with a pinned linker and build it
+        shell: bash
+        run: |
+          set -euo pipefail
+          just new "$RUNNER_TEMP/pinned" pinnedproj --linker=lld
+          cd "$RUNNER_TEMP/pinned"
+          grep -q 'linker := env_var_or_default("ODIN_LINKER", "lld")' justfile
+          if grep -q "if os() ==" justfile; then
+            echo "--linker did not replace the per-OS default" >&2
+            exit 1
+          fi
+          just run
+          # The env var has to win over whatever the project pinned, or there is no escape hatch
+          # for the cases the pin gets wrong (-lto on Windows requires lld; a machine without mold).
+          ODIN_LINKER=default just run
 
       # The output name carries `.exe` on every platform, matching the skeleton's own `main.exe`
       # convention, so one invocation covers all runners.

@@ -2,6 +2,7 @@ package skel
 
 import "core:fmt"
 import "core:os"
+import "core:strings"
 
 // Bumped by the release process. `dev` marks a binary built straight from a working tree, which is
 // also what `version` reports when nobody has stamped a release in.
@@ -30,6 +31,11 @@ Commands:
   new <dest> [name]   Scaffold a project into <dest>. The directory must not exist, or must be
                       empty apart from .git. [name] defaults to the directory's own name and is
                       used for the .sublime-project file.
+      --linker=<v>    Pin the generated justfile's linker for every platform, where <v> is one of
+                      default, lld, radlink or mold. Omit it to keep the skeleton's per-OS default:
+                      radlink on Windows (it ships with the Odin toolchain), "default" elsewhere.
+                      mold is Linux-only and must be installed separately. Whatever is chosen,
+                      ODIN_LINKER=<v> overrides it for a single command.
   doctor              Check for odin, just, odinfmt and git; report what is missing, what is too
                       old, and where to get it.
   version             Print this binary's version.
@@ -40,6 +46,7 @@ Examples:
   odin-skel new ../dir my-game        scaffold into ../dir, but name the project "my-game"
   odin-skel new . my-game             scaffold into the current directory (must be empty; a name
                                       is needed here because "." is not one)
+  odin-skel new ../srv --linker=mold  scaffold with mold pinned as the project's linker
   odin-skel doctor                    check the toolchain before starting
 
 After scaffolding, the project is driven by just (https://just.systems):
@@ -78,13 +85,43 @@ run :: proc() -> int {
 		fmt.print(USAGE)
 		return 0
 	case "new":
-		if len(args) < 2 {
+		// `--linker` may appear anywhere after `new`; what is left over is positional. Both
+		// spellings are accepted because both are what people type.
+		positional: [dynamic]string
+		defer delete(positional)
+		linker := ""
+		for i := 1; i < len(args); i += 1 {
+			arg := args[i]
+			value := ""
+			switch {
+			case strings.has_prefix(arg, "--linker="):
+				value = arg[len("--linker="):]
+			case arg == "--linker":
+				if i + 1 >= len(args) {
+					fmt.eprintln("odin-skel: --linker needs a value, e.g. --linker=mold")
+					return 2
+				}
+				i += 1
+				value = args[i]
+			case:
+				append(&positional, arg)
+				continue
+			}
+			if !valid_linker(value) {
+				fmt.eprintfln("odin-skel: unknown linker %q", value)
+				fmt.eprintfln("choices: %s", strings.join(LINKERS, ", ", context.temp_allocator))
+				return 2
+			}
+			linker = value
+		}
+
+		if len(positional) == 0 {
 			fmt.eprintln("odin-skel: `new` needs a destination directory")
-			fmt.eprintln("usage: odin-skel new <dest> [name]")
+			fmt.eprintln("usage: odin-skel new <dest> [name] [--linker=<default|lld|radlink|mold>]")
 			return 2
 		}
-		name := len(args) >= 3 ? args[2] : ""
-		return new(args[1], name)
+		name := len(positional) >= 2 ? positional[1] : ""
+		return new(positional[0], name, linker)
 	case:
 		fmt.eprintfln("odin-skel: unknown command %q", args[0])
 		fmt.eprint(USAGE)

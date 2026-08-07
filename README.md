@@ -19,6 +19,8 @@ just run
 
 <!-- <<< skeleton-only -->
 
+## Tasks
+
 A `justfile` is part of this opinionated setup and you may need to edit the tasks as new packages are added in
 sub-directories. [Just >=1.32](https://just.systems/) is a CLI task runner that you *need to install*. Run any task
 with `just TASK`:
@@ -58,6 +60,50 @@ compile entirely (needs a prior `run_*` of the same profile):
 * `just sanitize [KIND]` / `just test_sanitize [KIND]` — run the program / the tests under a sanitizer. `KIND` is
   `address` (default), `memory` or `thread`. Only `address` is widely supported; `memory` and `thread` need a
   clang-ish toolchain and are unavailable on some platforms (notably Windows/MSVC)
+
+### Choosing a linker
+
+Odin has no build cache, so it relinks on every `just run`. Which linker does that work is a `linker` variable at the
+top of the justfile, passed to every recipe that links:
+
+| value | notes |
+| --- | --- |
+| `default` | Odin picks — MSVC `link.exe` on Windows. Portable, and the default everywhere except Windows |
+| `lld` | LLVM's linker. Valid on every platform |
+| `radlink` | RAD Debugger's linker. **Windows only**, and bundled with the Odin toolchain, so it needs no install — which is why it is the Windows default here |
+| `mold` | **Linux only**, and *not* bundled — `apt install mold` or equivalent first |
+
+Override for a single command without editing anything:
+
+```sh
+ODIN_LINKER=lld just run
+```
+
+To change the default for good, edit that `linker` line in the justfile.
+
+<!-- >>> skeleton-only -->
+A new project can also have it pinned at scaffold time, which rewrites that line for every platform:
+
+```sh
+odin-skel new ../my-service --linker=mold
+```
+<!-- <<< skeleton-only -->
+
+Odin rejects a linker its platform does not support rather than falling back — asking for mold on Windows exits 1 with
+`'mold' linker is not supported on this platform` and produces no binary. `ODIN_LINKER` is an environment variable
+rather than a recipe argument because `odin` errors on a repeated flag, so a `-linker:` passed through a recipe's extra
+args would collide with the one the recipe already adds.
+
+**When the default is the better choice.** Neither radlink nor mold is an *incremental* linker; MSVC `link.exe` is.
+Paired with `-use-separate-modules` — which `-lto` implies — an incremental relink of one changed module can beat a
+full link that is individually faster. That is not the shape of a stock Odin build, though: single-module builds give
+LTO little to work with, and statically linked external C libraries do not get LTO either way. Measure on your own
+project before assuming. `-lto` is also a hard conflict rather than a preference — on Windows it *requires*
+`-linker:lld` — so reach for the override there:
+
+```sh
+ODIN_LINKER=lld just run_release -lto:thin
+```
 
 **Housekeeping:**
 
@@ -217,6 +263,9 @@ when you are ready.
 `just new DEST [NAME]` copies this skeleton into a new or empty directory `DEST` (a `.git/` already present is fine —
 usually it was just `git init`-ed; any other content makes it refuse). `NAME` defaults to the `DEST` directory name.
 
+Add `--linker=VALUE` (`default`, `lld`, `radlink` or `mold`) to pin the new project's linker for every platform
+instead of inheriting the per-OS default — see [Choosing a linker](#choosing-a-linker).
+
 Only git-tracked files are copied, so build artifacts, `.git/` and untracked local files are left behind. A few things
 are rewritten rather than copied verbatim:
 
@@ -224,7 +273,10 @@ are rewritten rather than copied verbatim:
 * the skeleton's [Unlicense](https://unlicense.org) `LICENSE` is replaced with a fresh [Zlib](https://opensource.org/license/zlib)
   `LICENSE` (matching the Odin project's own license)
 * the `justfile` is emitted without its `# >>> skeleton-only` recipes (`new`, `snippets`, `snippets-check`) — those
-  only maintain this skeleton, not a real project
+  only maintain this skeleton, not a real project. `README.md` and `.gitattributes` carry the same markers and get the
+  same treatment: the README sections documenting those recipes, and the `linguist-generated` rules naming `tools/`,
+  which a scaffolded project never receives
+* the justfile's `linker` default is rewritten when `--linker` is passed
 
 The `.sublime-snippet` files are copied so you stay aware of them, but treat them as a one-off starting point (the
 generator that keeps them in sync stays behind — see the Sublime section).

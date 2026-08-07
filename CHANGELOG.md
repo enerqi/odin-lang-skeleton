@@ -9,6 +9,13 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+### Changed
+
+- `mktarget_dirs` creates every build directory in one command instead of one per line. just starts a
+  new shell for each recipe line, so the old version paid six shell launches; on Windows that is
+  ~1.1s of PowerShell startup before *every* build, since every `run_*`, `test*` and `diagnose`
+  recipe depends on it. Measured at 5.7x faster (1.125s -> 198ms).
+
 ## [0.1.1] - 2026-08-07
 
 ### Added

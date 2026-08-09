@@ -10,6 +10,9 @@ Status: **accepted.** Phases 1–3 are implemented — `version`, `doctor`, `new
 and CI plus tagged releases for four targets. Phase 4 (update check, `--from-git`, self-update) is
 not.
 
+Decision 4 (`--lib`) is **designed, not implemented** — the layout survey and the toolchain checks it
+rests on are recorded below, but no code exists yet.
+
 
 ## Decision 1 — templates are embedded in the binary
 
@@ -128,11 +131,13 @@ is `missing target/debug/odin-skel.exe - run 'just build_skel' first` rather tha
 The tool's source lives under `tools/`. The repository root remains a working Odin project.
 
 ```
-.                      <- the template; also a project you can clone and run as-is
+.                      <- the exe template; also a project you can clone and run as-is
 ├── main.odin
 ├── justfile
 ├── odinfmt.json
 ├── .sublime/
+├── mylib/             <- the lib template (Decision 4): a live package here, relocated to the
+│                         destination root when scaffolded with --lib
 ├── CHANGELOG.md       <- NOT part of the template: this skeleton's own history
 ├── .github/           <- NOT part of the template: CI for the skeleton itself
 │   └── workflows/
@@ -163,7 +168,7 @@ the same files a human would get from `git clone`, so the two paths cannot diver
 `tools/` must be excluded from scaffolding, or every generated project inherits the tool's source.
 This is implemented in the `new` recipe:
 
-```python
+```
 EXCLUDED_PREFIXES = ("tools/",)
 ```
 
@@ -176,6 +181,312 @@ new skeleton-tooling path must be added to one of those tuples and to the tree a
 Note that `.gitignore`-style exclusion does not work here: `just new` copies from `git ls-files`, so
 `tools/` has to be tracked (it is source code) while still being skipped at copy time. The exclusion is
 therefore explicit in the recipe rather than inherited from git.
+
+### Amendment — a second project kind cannot also be the root
+
+Decision 4 adds `--lib`, and a library template cannot be the repository root as well: the root is
+`package main`, and a directory holds exactly one package. Taken literally, the decision above would
+force the lib template into a `template/` directory — the inert data this decision exists to reject.
+
+The rule is therefore restated one level up. **What matters is not that the template lives at the root,
+but that every template is a live participant in this repository's own build.** For the exe template
+that means being the root package, as before. For the lib template it means being a real package this
+repository lints, tests and imports, which `just lint` and `just test` already sweep — see Decision 4,
+"keeping the lib template live", for the directory and the path rewriting that follows from it.
+
+Both templates stay exercised on every commit. Neither becomes a directory of text files that is only
+compiled once somebody else has been handed a copy.
+
+
+## Decision 4 — `--lib` scaffolds a source package, not a build target
+
+`odin-skel new --lib <dest>` scaffolds a library: an Odin **source package** that consumers clone or
+vendor into their own tree and import. It is the counterpart to cargo's `--lib`, and the default
+(executable) shape is unchanged.
+
+**Producing a native artifact is out of scope.** Odin can build `-build-mode:shared|dll` and
+`-build-mode:lib|static`, but a project doing that is a different shape — exported entry points, a
+hand-written C header, per-platform artifact names, and a `context` to establish at every boundary. It
+deserves its own kind if it is ever wanted; it is not what `--lib` means here.
+
+Status: designed, not implemented. The two load-bearing sub-decisions are settled — **4a** (the
+repository root is the package) and **4d** (tests live in the package). The rest of Decision 4 follows
+from those two and can be built against them.
+
+### What the ecosystem actually does
+
+Surveyed from the libraries listed in [awesome-odin](https://github.com/jakubtomsu/awesome-odin), plus
+the Odin toolchain's own `core`:
+
+| repository | shape | how a consumer uses it |
+| --- | --- | --- |
+| laytan/odin-http | root **is** the package, plus `client/`, `openssl/` subpackages | examples `import http "../.."` |
+| jakubtomsu/odin-ldtk | root is the package, plus `example/` | "place `ldtk.odin` in an `ldtk` folder", `import "../ldtk"` |
+| Up05/toml_parser | root is the package, plus `dates/`, `tests/` | `git clone …/toml_parser toml`, then `import "toml"` |
+| laytan/back | root is the package, plus `examples/` | examples `import back "../.."` |
+| GoNZooo/odin-cli | root is the package | not stated |
+| enerqi/odin-rure | root is the package, plus `example/` | not stated |
+| jakubtomsu/odin-mimalloc | package in a `mimalloc/` subdirectory | "copy the `mimalloc` folder into your project", `import mi "mimalloc"` |
+| Odin `core/`, `vendor/` | collection root: no `.odin` at the top, packages in subdirectories | `-collection:` (built into the compiler) |
+
+Six of the seven community libraries make the repository root the package itself. The consumer clones
+or copies that directory into their own tree — frequently renaming it on the way, as toml_parser's
+instructions do — and imports it by relative path. A `-collection:` flag is the *consumer's* choice
+about their own vendor directory, not something the library repository declares.
+
+So "the project root is the collection root" is close but off by one level: the root is the **package**.
+The collection, when there is one, is the directory the consumer dropped it into.
+
+`core/` and `vendor/` are the exception that proves the rule — they are genuine collection roots, but
+they are also the compiler's built-in collections, mounted by the toolchain rather than vendored by
+anyone. Their layout is what a library *grows into*, not what one starts as.
+
+### Decision 4a — layout
+
+```
+<repo>/                    <- consumers clone/copy THIS directory into their tree
+├── <pkg>.odin             <- package <pkg>; the root directory is the package
+├── <pkg>_test.odin
+├── examples/
+│   ├── basic.odin         <- package main, built with -file, `import ".."`
+│   └── all.odin           <- aggregator; only once subpackages exist (Decision 4c)
+├── justfile  README.md  LICENSE  .gitignore  .editorconfig  odinfmt.json  .sublime/
+```
+
+Subpackages are added later as subdirectories, exactly as odin-http grew a `client/`. The root package
+stays the entry point, so a library that gains a second package restructures nothing.
+
+The chief practical benefit is that the recipes barely move: with `.odin` files at the root,
+`odin check .` and `odin test .` work unchanged. A collection-root layout (no `.odin` at the top) does
+not — verified:
+
+```
+$ odin check .
+Syntax Error: Empty directory that contains no .odin files: <root>
+```
+
+There is no `-all-packages` for `check` or `build` (only `odin doc` has one, and it means "packages
+*used by* this project", which sweeps in all of `core:`), so a collection-root layout would force every
+lint/test recipe into a directory loop. Root-as-package avoids that until the project earns it.
+
+### Decision 4b — examples are single-file `main` packages
+
+`examples/` holds flat, single-file executables, each built with `-file`, which makes the file a
+self-contained package. Several `main` procedures therefore coexist in one directory with no
+subdirectory apiece:
+
+```
+odin run examples/basic.odin -file -out:target/debug/example-basic.exe
+```
+
+**The relative import depth differs from the ecosystem's, and the error is unhelpful.** A `-file`
+example sits one level shallower than the `examples/<name>/main.odin` layout that odin-http and back
+use, so it imports `".."`, not `"../.."`. Verified:
+
+| example | import | result |
+| --- | --- | --- |
+| `examples/basic.odin` with `-file` | `import ".."` | works |
+| `examples/basic.odin` with `-file` | `import "../.."` | `Syntax Error: Empty directory that contains no .odin files: ../..` |
+| `examples/basic/main.odin` | `import "../.."` | works |
+
+Relative imports in `-file` mode resolve against the file's own directory. The generated README must
+say so, because the error names the path and not the reason.
+
+Examples import by relative path rather than through a collection, which keeps them honest: they
+exercise the same directory a consumer would vendor, with no build-time flag propping them up.
+
+### Decision 4c — the aggregator package for whole-tree checks
+
+Once the library has subpackages, nothing type-checks them all at once — `odin check .` only sees the
+root package. Odin's own answer is `examples/all`, a package whose entire content is
+`@(require) import` of every other package, checked by `check_all.sh` and used to drive `odin doc`.
+
+The same idea collapses to one file here, so it stays inside Decision 4b's "single-file examples" rule:
+
+```odin
+package all
+
+@(require) import ".."
+@(require) import "../sub"
+```
+
+`odin check examples/all.odin -file -no-entry-point` then type-checks the whole tree. Verified that it
+fails on a broken subpackage:
+
+```
+$ odin check examples/all.odin -file -no-entry-point
+<root>/sub/sub.odin(4:13) Error: Undeclared name: undefined_thing
+```
+
+`@(require)` is load-bearing — without it an unreferenced import is dropped and the check passes
+vacuously.
+
+The scaffolded project ships without this file, since a one-package library does not need it. The
+README documents it as the thing to add on the day a second package appears.
+
+Note that `odin doc <target> -all-packages` is *not* a documentation recipe for a library: it documents
+every package used, `core:` included. Per-package `odin doc <pkg>` is the usable form.
+
+### Decision 4d — tests stay in the package
+
+`<pkg>_test.odin` lives beside the source, and `odin test .` needs no configuration. Verified: a
+`_test.odin` in a package compiles fine in a non-test build, where `@(test)` procedures are simply
+ignored.
+
+The alternative is Odin core's: a mirrored external tree (`tests/core/<pkg>/`) importing through the
+collection, so the shipped package contains no test code at all.
+
+In-package wins for a single-package library because tests can reach `@(private)` symbols, and because
+it is what the surveyed libraries do.
+
+### The cost of in-package tests, measured
+
+The test file is part of the package, so a consumer building the package also builds
+`import "core:testing"`. **Optimization does not remove it** — the same example binary, built with and
+without the `_test.odin` file beside the source (Linux x86-64):
+
+| build | with `_test.odin` | without | delta |
+| --- | --- | --- | --- |
+| `-o:none -debug` | 832,912 | 808,976 | +23,936 |
+| `-o:minimal` | 377,648 | 372,056 | +5,592 |
+| `-o:speed` | 230,712 | 222,056 | +8,656 |
+| `-o:size` | 230,712 | 222,056 | +8,656 |
+| `-o:speed` + `-no-bounds-check -disable-assert -no-type-assert` | 208,664 | 200,008 | +8,656 |
+
+The `@(test)` procedure itself *is* eliminated — no `test_add` symbol survives in the optimized binary.
+What survives is `core:testing`'s transitive `@(init)`/`@(fini)` roots, which are entry points and
+therefore unconditionally live no matter how dead the code reaching them is. At `-o:speed` the residue
+is twelve symbols: `terminal::init_terminal` / `fini_terminal`, `log::init_standard_stream_status`,
+`os::stderr`, and the rune-decode tables they pull along. Sections move by text +6,860, data +16,
+bss +16. `-o:speed` costs *more* than `-o:minimal` because the retained code is then inlined and
+specialised.
+
+The number that decides this, though, is the overlap. Almost the whole cost is packages the consumer
+very likely imports anyway. The same measurement against an example that already uses `core:log`:
+
+| build | with `_test.odin` | without | delta |
+| --- | --- | --- | --- |
+| `-o:minimal` | 411,384 | 411,304 | **+80** |
+| `-o:speed` | 253,696 | 253,624 | **+72** |
+
+So the honest figure is "up to ~8.6 KB against a consumer who imports nothing but `core:fmt`, and
+~80 bytes against one that already logs". That is not worth an external test tree. The generated README
+records it and points at the mirrored-tree layout for anyone whose target says otherwise — a freestanding
+or WASM consumer, where both the size and the `@(init)` roots may actually matter.
+
+If the library later becomes a genuine collection, adopt core's layout wholesale — at that size the
+package boundary matters more than reaching private symbols.
+
+### Decision 4e — three names where the exe kind has one
+
+| name | example | constraint |
+| --- | --- | --- |
+| destination directory / repository | `odin-mylib` | anything |
+| package name, declared in every file | `mylib` | **must be a valid Odin identifier** — a hyphen is illegal |
+| the directory the consumer clones into | `mylib` | theirs to choose; it becomes the import path segment |
+
+`--lib` therefore needs a sanitiser the exe path never did: `-`, `.` and space to `_`, reject a leading
+digit, reject Odin keywords, reject empty. `--pkg=<name>` overrides it; without one it derives from the
+project name. `odin-skel new --lib ../odin-mylib` yields `package mylib` in a directory named
+`odin-mylib`, and the README tells the consumer to clone it as `mylib`, which is what toml_parser's
+instructions already do by hand.
+
+### Decision 4f — justfile delta
+
+Root-as-package keeps this small.
+
+**Unchanged:** `format`, `clean`, `mktarget_dirs`, `lint` (it already passes `-no-entry-point`), the
+whole `linker` block, and `test`/`test1`, which work against the root package as they stand.
+
+**Removed** — the five-tier build ladder has nothing to build:
+
+* `run_debug`, `run_fast_debug`, `run_release_debug`, `run_release`, `run_release_nochecks`, `alias run`
+* the five `rerun_*` recipes and `alias rerun`
+* `sanitize` — it is `odin run`-based, so it folds into the existing `test_sanitize`
+* `diagnose`
+* `main_name` (`test_main_name` stays)
+
+**Added:**
+
+* `example <name>` — `odin run examples/{{name}}.odin -file`, output to `target/debug/example-<name>.exe`
+* `examples` — check every file in `examples/`, so the library cannot drift from its own documentation
+* `doc` — per-package `odin doc`
+* `check` — the inner-loop recipe, replacing `just run` as the thing you hit constantly
+
+`-microarch:native` can stay in the test and example recipes: nothing here ships as a binary, so it
+never reaches a consumer's machine.
+
+**To settle:** `release` and `changelog_section` sit inside `# >>> skeleton-only`, so scaffolded
+projects do not get them. A library is tagged and pinned far more than an application is — consumers
+depend on tags. They should probably move out of the marker block, for both kinds.
+
+### Keeping the lib template live
+
+Per the Decision 3 amendment, the lib template has to be a real package in this repository. It cannot be
+the root, so it lives in its own directory named for its placeholder package:
+
+```
+<skeleton>/
+├── main.odin              <- exe template; still the root package
+├── mylib/                 <- lib template: package mylib, with its tests
+│   ├── mylib.odin
+│   ├── mylib_test.odin
+│   └── examples/basic.odin
+└── tools/
+```
+
+Scaffolding relocates `mylib/*` to the destination root and rewrites `package mylib` to `package <pkg>`.
+
+The relative import strings survive the move untouched, which is what makes this cheap: in the skeleton,
+`mylib/examples/basic.odin` built with `-file` resolves `".."` to `mylib/`; in a scaffolded project,
+`examples/basic.odin` resolves the same `".."` to the root. Same string, both positions. Only file paths
+are rewritten, never file contents beyond the package clause.
+
+The skeleton's root `main.odin` can import `mylib/` directly, which both keeps the template compiled and
+gives the exe template a worked example of consuming a local package — something the `xyz` /
+`XYZ_HOME` placeholder variables currently only gesture at.
+
+### Tool changes
+
+* `main.odin` — `--lib` and `--pkg=<name>`, parsed in the same anywhere-after-`new` loop as `--linker`;
+  usage text and examples. `--linker` still applies, since test and example binaries are linked.
+* `new.odin` — `new(dest, name, linker, kind, pkg)`; the per-file switch gains the `mylib/` prefix strip
+  and the package-clause rewrite.
+* `templates.odin` / `_embed` — `Template` gains a `kind`, and the generator learns that lib template
+  files are written to a different path than they are read from.
+* `strip_skeleton_only` — generalised to named blocks (`exe-only`, `lib-only`) for the justfile and
+  README. `marker_text` already handles both comment spellings, and the "unknown marker: drop the marker
+  line, keep the body" branch already exists, so this is a small change to a tested shape.
+* Unchanged: `doctor`, `OWNED_COMMANDS` and the loop guard, `set_linker_default`, `project_readme`,
+  `zlib_license`, `dir_is_empty_enough`, and every path helper.
+* `just new` needs **no change** — its `*flags` passthrough already carries `--lib`.
+* New tests: the package-name sanitiser as a table, per-kind stripping, and an end-to-end lib scaffold.
+
+### Splitting the templates
+
+* justfile and README — marker blocks. They are ~37 KB and mostly shared; a second copy is a permanent
+  drift problem, which is Decision 2's argument applied to text files.
+* Odin sources and examples — separate files carrying a `kind`. `main.odin` and a library package share
+  nothing, and markers would make both unreadable.
+
+### What it costs
+
+Two project kinds means two templates to keep working, and the `just embed` drift guard now has two
+trees to cover. The Decision 3 amendment holds the line that matters — both are live code in this
+repository — but `just lint` and `just test` do more work per commit, and a change to the shared
+justfile has to be considered against both kinds rather than one.
+
+### Order of work
+
+1. Confirm 4a and 4d — everything else hangs off the layout and the test placement.
+2. Add the live `mylib/` package and its examples to this repository; wire it into the root project and
+   get CI green. This is the Decision 3 amendment, and it comes before any tool work.
+3. Generalise block stripping to named kinds; mark the justfile and README.
+4. `Template.kind`, path rewriting, and the two-tree `_embed`.
+5. `--lib` / `--pkg` parsing, the name sanitiser, and tests.
+6. Usage text, README "Creating a new project", this file, CHANGELOG.
+
+Steps 1 and 2 are load-bearing; 3 to 5 are mechanical once the template is a real package.
 
 
 ## Settled context for these decisions
@@ -191,6 +502,22 @@ Verified against the toolchain rather than assumed:
 * GitHub Actions is free on public repositories for all standard runners, including macOS and Windows,
   with no minute multiplier — so a three-OS release matrix costs nothing and macOS is included from the
   start rather than deferred
+
+For Decision 4, run against the installed toolchain rather than reasoned about:
+
+* `odin check` on a directory with no `.odin` files in it fails with
+  `Syntax Error: Empty directory that contains no .odin files` — a collection root is not checkable as
+  a unit
+* `-all-packages` exists only on `odin doc`, and documents packages *used by* the project, `core:`
+  included. There is no whole-tree `check` or `build`
+* in `-file` mode a relative import resolves against the file's own directory, so a flat
+  `examples/x.odin` imports `".."` where an `examples/x/main.odin` imports `"../.."`
+* a `_test.odin` file inside a package compiles in a non-test build; `@(test)` procedures are ignored
+  there, and the procedure bodies are eliminated. What is *not* eliminated at any optimization level is
+  `core:testing`'s transitive `@(init)`/`@(fini)` roots — see Decision 4d for the measurements
+* a single-file `package all` of `@(require) import`s type-checks every package it names, and reports
+  errors from inside them. Without `@(require)` the unreferenced imports are dropped and the check
+  passes vacuously
 
 
 ## Open items
@@ -226,6 +553,19 @@ Not decided; deliberately deferred.
   "Scaffolding & skeleton upkeep". This predates the tool and is a template bug, not a tool bug:
   either README.md needs the same marker treatment the justfile gets, or that section needs to move
   somewhere that is not copied
+
+* `mod.pkg`. Three of the seven surveyed libraries (odin-http, toml_parser, odin-cli) carry one, which
+  suggests a community package manifest is settling into place. Not designed for here — but worth
+  re-checking before `--lib` ships, because if it is becoming conventional then a generated library
+  should carry one
+
+* whether `release` and `changelog_section` should leave the `# >>> skeleton-only` block. A library is
+  tagged and pinned by its consumers, so a scaffolded library wants a release path far more than a
+  scaffolded application does. Applies to both kinds if it is done at all
+
+* a native-artifact kind (`-build-mode:shared|static`) for C consumers, deliberately excluded from
+  Decision 4. It needs exported entry points, a `context` established at every boundary, a hand-written
+  header and per-platform artifact names — a third kind, not a flag on this one
 
 * pinning the Odin toolchain. CI uses `release: nightly` because the skeleton needs the `core:os`
   process API that arrived when os2 was merged in, which may be newer than the latest tagged Odin

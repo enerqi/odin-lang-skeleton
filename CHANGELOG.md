@@ -9,6 +9,36 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-09
+
+### Changed
+
+- **Every `[script]` recipe now runs on `uv run --no-project -p 3.14 python` instead of a bare
+  `python`, pinned once via the justfile's new `set script-interpreter`.** A bare `python`/`python3`
+  on `PATH` was never a reliable cross-platform lookup: on Windows via Scoop it is whatever version
+  was last `scoop install`ed with no pin, and on Linux it is whatever the distro shipped. uv resolves
+  (and downloads if missing) the same pinned interpreter on every platform instead, so uv becomes the
+  one tool these recipes depend on rather than an unpinned system python.
+
+  `--no-project` matters even though this repo has no `pyproject.toml`: without it, `uv run` walks up
+  from the working directory looking for one to treat as the project root, and if it ever found a
+  stray one two directories up it would silently start syncing/using *that* project's venv and pinned
+  version instead of the one here.
+
+  In a scaffolded project this only affects `ols-config`, `install-sublime` and `sublime-build-init` —
+  none of `run_*`/`test*`/`lint`/`format` touch Python, so uv is optional there, not a new hard
+  dependency alongside `just`. In this repo it also covers the skeleton-only `new`, `release`,
+  `changelog_section`, `_embed` and `_snippets` recipes.
+
+  CI needed a matching change: GitHub's runners ship a system python (which is what let the old bare
+  `[script("python")]` recipes work by accident) but not uv, so `ci.yml` and `release.yml` each gained
+  an `astral-sh/setup-uv` step ahead of every job that runs a `[script]` recipe.
+
+### Added
+
+- `odin-skel doctor` now also checks for `uv`, optional like `odinfmt` and `git` — it lets
+  `install-sublime`, `sublime-build-init` and `ols-config` run without a system python (see above).
+
 ## [0.4.4] - 2026-08-07
 
 ### Changed
@@ -456,7 +486,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.4.4...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.5.0...HEAD
+[0.5.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.5.0
 [0.4.4]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.4
 [0.4.3]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.3
 [0.4.2]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.2

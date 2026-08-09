@@ -30,7 +30,7 @@ jobs:
       # ship, but not pinned to any particular version. uv is not preinstalled, unlike python, so it
       # needs its own setup step; it then downloads the pinned 3.14 itself on first use, no separate
       # python setup needed.
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@v9.0.0
       - name: embed-check
         run: just embed-check
       - name: snippets-check
@@ -56,7 +56,7 @@ jobs:
       # `new` (used below to scaffold a generated project) is a `[script]` recipe running on
       # `uv run -p 3.14 python` - see the note on the `astral-sh/setup-uv` step in the
       # `generated-files` job above. `lint`/`test`/`build_skel` above do not need this; only `new` does.
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@v9.0.0
 
       # `odin check .` covers only the root package, so the template and the tool are linted
       # separately. Neither needs odinfmt, which is why `just format` is not run here - odinfmt has

@@ -69,7 +69,7 @@ jobs:
       # recipe running on `uv run -p 3.14 python` - see the justfile's `set script-interpreter`. uv is
       # not preinstalled on GitHub's runners the way python is, so it needs its own setup step; it then
       # downloads the pinned 3.14 itself on first use.
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@v9.0.0
 
       # Deliberately before setup-odin, which is the slow step. The release notes are assembled in
       # the publish job, so a tag with no CHANGELOG.md section used to fail only after all four
@@ -176,7 +176,7 @@ jobs:
 
       # `changelog_section` below is a `[script]` recipe running on `uv run -p 3.14 python` - see the
       # note on the same step in the `build` job above.
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@v9.0.0
 
       - uses: actions/download-artifact@v4
         with:

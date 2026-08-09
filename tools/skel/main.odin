@@ -36,8 +36,8 @@ Commands:
                       radlink on Windows (it ships with the Odin toolchain), "default" elsewhere.
                       mold is Linux-only and must be installed separately. Whatever is chosen,
                       ODIN_LINKER=<v> overrides it for a single command.
-  doctor              Check for odin, just, odinfmt and git; report what is missing, what is too
-                      old, and where to get it.
+  doctor              Check for odin, just, odinfmt, git and uv; report what is missing, what is
+                      too old, and where to get it.
   version             Print this binary's version.
   help                Print this message.
 

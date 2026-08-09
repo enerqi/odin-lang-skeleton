@@ -7,11 +7,23 @@
 # cmd also wins the portability argument that put PowerShell here over nu: it is on every Windows,
 # needs no install, and has no profile to make a recipe unreproducible. The cost is that it is a poor
 # language for a multi-line recipe - which does not bite, because every Windows body below is a single
-# command and anything with logic uses `[script("python")]`.
+# command and anything with logic uses `[script]`.
 set windows-shell := ["cmd.exe", "/c"]
 set shell := ["bash", "-c"]
-set unstable  # [script("python")] feature - https://github.com/casey/just/issues/1479
+set unstable  # [script] feature - https://github.com/casey/just/issues/1479
 set lazy
+
+# `python` alone is not a reliable cross-platform lookup: scoop (Windows) installs whatever version was
+# last `scoop install`ed under the bare name `python`, with no version pin, and a bare `python3`/`python`
+# on Linux is whatever the distro shipped. `uv run -p 3.14 python` sidesteps both - uv resolves (and
+# downloads if missing) the newest 3.14 patch it knows of, the same on every platform, so uv becomes the
+# one tool these recipes depend on instead of a system python. `--no-project`: without it, `uv run` walks
+# up from cwd looking for a pyproject.toml/uv.toml to treat as the project root - none exists above this
+# repo today, but if one ever did (e.g. a stray python project two directories up), these recipes would
+# silently start syncing/using *that* project's venv and pinned version instead of the one below.
+# `--no-project` disables that discovery so the version here is the only one that applies. Recipes opt in
+# with the bare `[script]` attribute (no interpreter argument) to pick this up.
+set script-interpreter := ["uv", "run", "--no-project", "-p", "3.14", "python"]
 
 # Set by the newest just feature used below - currently user-defined functions (1.49), for
 # `target_path`. Older features it also needs: `join()` 1.37, f-strings 1.44, `set lazy` 1.47.
@@ -263,7 +275,7 @@ diagnose *args: mktarget_dirs
 # env var if your setup is non-standard.
 # ---
 # install the editor snippets + build systems into Sublime Text's global `Packages/User` directory
-[script("python")]
+[script]
 install-sublime:
 	import os, sys, shutil
 	home = os.path.expanduser("~")
@@ -307,7 +319,7 @@ install-sublime:
 # projects by `just new`.)
 # ---
 # add a `build_systems` stub to the project's .sublime-project
-[script("python")]
+[script]
 sublime-build-init:
 	import glob, os, sys
 	matches = glob.glob(os.path.join(".sublime", "*.sublime-project"))
@@ -374,7 +386,7 @@ sublime-build-init:
 # FILL IN: rename collection_name / collection_path (and the XYZ_HOME env var) above to match your collection.
 # ---
 # SKELETON: (re)generate ols.json so the Odin language server resolves an extra collection
-[script("python")]
+[script]
 ols-config:
 	import json, sys
 	path = r"{{collection_path}}"
@@ -437,7 +449,7 @@ build_skel_release *args: mktarget_dirs
 # parameter per option.
 # ---
 # copy this skeleton into a new or empty directory
-[script("python")]
+[script]
 new dest name="" *flags:
 	import os, subprocess, sys
 
@@ -462,7 +474,7 @@ new dest name="" *flags:
 #   just release 0.1.1      # then: review, commit, tag, push
 # ---
 # promote CHANGELOG.md's Unreleased section to a version heading
-[script("python")]
+[script]
 release version:
 	import datetime, re, sys
 
@@ -527,7 +539,7 @@ release version:
 #   just changelog_section 0.1.0
 # ---
 # print the CHANGELOG.md section for a version
-[script("python")]
+[script]
 changelog_section version:
 	import re, sys
 
@@ -584,7 +596,7 @@ embed:
 embed-check:
 	just _embed check
 
-[script("python")]
+[script]
 _embed mode:
 	import subprocess, sys, os, re
 
@@ -682,7 +694,7 @@ snippets:
 snippets-check:
 	just _snippets check
 
-[script("python")]
+[script]
 _snippets mode:
 	import sys, os, difflib
 

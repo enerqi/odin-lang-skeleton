@@ -61,6 +61,17 @@ CHECKS :: []Tool_Check {
 		why = "needed by `just new` and by update checks",
 		install = "https://git-scm.com/downloads",
 	},
+	{
+		name       = "uv",
+		probe_args = {"uv", "--version"},
+		required   = false,
+		// `install-sublime`, `sublime-build-init` and `ols-config` are `[script]` recipes that run on
+		// `uv run -p 3.14 python` (see the justfile's `set script-interpreter`) rather than a bare
+		// `python`, so a version-pinned interpreter downloads itself instead of depending on whatever
+		// `python` happens to resolve to on the machine (unpinned on scoop, distro-versioned on Linux).
+		why        = "lets `install-sublime`, `sublime-build-init` and `ols-config` run without a system python",
+		install    = "https://docs.astral.sh/uv/getting-started/installation/",
+	},
 }
 
 /*

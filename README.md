@@ -78,7 +78,7 @@ Verify what you downloaded against `SHA256SUMS` on the release page if you would
 Then:
 
 ```
-odin-skel doctor      # check odin / just / odinfmt / git are present and new enough
+odin-skel doctor      # check odin / just / odinfmt / git / uv are present and new enough
 odin-skel new ../my-project
 odin-skel help        # full usage
 ```
@@ -173,7 +173,8 @@ compile entirely (needs a prior `run_*` of the same profile):
 * `just clean` — wipe the `target` directory
 * `just mktarget_dirs` — create the `target` directory tree (auto-called by the `run_*` tasks)
 
-**Editor setup:**
+**Editor setup** (these three run on Python via [uv](https://docs.astral.sh/uv/) — see
+[Editor setup needs uv](#editor-setup-needs-uv)):
 
 * `just ols-config` — (re)generate `ols.json` (see [Language Server Configuration](#language-server-configuration))
 * `just install-sublime` — install the snippets + build systems into Sublime Text's global config (see the Sublime section)
@@ -206,6 +207,28 @@ Notes:
   `[unix]` / `[windows]` attributes. PowerShell has no `rm -rf` (`rm` is an alias for `Remove-Item`, which rejects
   `-rf`), and uses `New-Item -ItemType Directory -Force` as its idempotent `mkdir -p`. Everything else is
   shell-agnostic: the recipes invoke `odin`, `just` and `odinfmt` directly rather than leaning on shell builtins.
+
+
+## Editor setup needs uv
+
+`ols-config`, `install-sublime` and `sublime-build-init` are `[script]` recipes — their bodies are Python, run
+through [uv](https://docs.astral.sh/uv/) rather than a bare `python`/`python3` on `PATH`. The justfile pins this in
+one place:
+
+```
+set script-interpreter := ["uv", "run", "--no-project", "-p", "3.14", "python"]
+```
+
+A bare `python` is not a reliable cross-platform lookup — on Windows via [Scoop](https://scoop.sh/) it is whatever
+version was last `scoop install`ed with no pin, and on Linux it is whatever the distro shipped. `uv run -p 3.14
+python` downloads the interpreter it needs (uv-managed, not the system one) so the same version runs everywhere, and
+`--no-project` stops `uv run` from walking up the directory tree looking for an unrelated `pyproject.toml`/`uv.toml`
+to treat as a project root.
+
+**uv is optional**, unlike `just`: none of the `run_*`/`test*`/`lint`/`format` tasks touch Python, so a project that
+never runs one of the three editor-setup recipes above never needs it installed. Install from
+[docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) (or via Scoop: `scoop install uv`) if
+you plan to use those recipes.
 
 
 ## Choosing a linker

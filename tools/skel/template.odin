@@ -403,6 +403,16 @@ odin_package_name :: proc(
 	if strings.trim_left(candidate, "_") == "" {
 		return "", "it has no letters or digits in it", false
 	}
+	// Odin refuses to compile a source file whose name starts with `_`, and the package file is named
+	// after the package: `--pkg=_internal` scaffolds cleanly and then fails on the first `just check`
+	// with `Files cannot start with '_'`. A leading separator in the project name lands here too, since
+	// separators become underscores above (`.mylib` -> `_mylib`).
+	//
+	// This also closes the only gap in the target-suffix check below, which requires at least one
+	// character before the `_` and so could not have rejected a bare `_js`.
+	if candidate[0] == '_' {
+		return "", "Odin will not compile a file whose name starts with `_`, and the file is named after the package", false
+	}
 
 	return strings.clone(candidate, allocator), "", true
 }

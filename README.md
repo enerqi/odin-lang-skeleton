@@ -268,7 +268,7 @@ and the examples are what prove the package is usable from outside it:
 * `just mktarget_dirs` — create the `target` directory tree (auto-called by every task that builds)
 
 **Editor setup** (these three run on Python via [uv](https://docs.astral.sh/uv/) — see
-[Editor setup needs uv](#editor-setup-needs-uv)):
+[Some recipes need uv](#some-recipes-need-uv)):
 
 * `just ols-config` — (re)generate `ols.json` (see [Language Server Configuration](#language-server-configuration))
 * `just install-sublime` — install the snippets + build systems into Sublime Text's global config (see the Sublime section)
@@ -309,9 +309,14 @@ Notes:
   shell-agnostic: the recipes invoke `odin`, `just` and `odinfmt` directly rather than leaning on shell builtins.
 
 
-## Editor setup needs uv
+## Some recipes need uv
 
+<!-- >>> exe-only -->
 `ols-config`, `install-sublime` and `sublime-build-init` are `[script]` recipes — their bodies are Python, run
+<!-- <<< exe-only -->
+<!-- >>> lib-only -->
+`examples`, `ols-config`, `install-sublime` and `sublime-build-init` are `[script]` recipes — their bodies are Python, run
+<!-- <<< lib-only -->
 through [uv](https://docs.astral.sh/uv/) rather than a bare `python`/`python3` on `PATH`. The justfile pins this in
 one place:
 
@@ -325,8 +330,16 @@ python` downloads the interpreter it needs (uv-managed, not the system one) so t
 `--no-project` stops `uv run` from walking up the directory tree looking for an unrelated `pyproject.toml`/`uv.toml`
 to treat as a project root.
 
+<!-- >>> exe-only -->
 **uv is optional**, unlike `just`: none of the `run_*`/`test*`/`lint`/`format` tasks touch Python, so a project that
-never runs one of the three editor-setup recipes above never needs it installed. Install from
+never runs one of the three editor-setup recipes above never needs it installed.
+<!-- <<< exe-only -->
+<!-- >>> lib-only -->
+**uv is needed for `just examples`**, and otherwise optional: `check`/`test*`/`lint`/`format`/`example` and `doc`
+touch no Python, but `examples` — the recipe that stops an API change from quietly invalidating the documentation —
+is one of these `[script]` recipes, so it is not only an editor-setup concern here.
+<!-- <<< lib-only -->
+Install from
 [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) (or via Scoop: `scoop install uv`) if
 you plan to use those recipes.
 

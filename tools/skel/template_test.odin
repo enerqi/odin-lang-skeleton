@@ -489,6 +489,18 @@ test_odin_package_name :: proc(t: ^testing.T) {
 		// Byte-wise validation, so non-ASCII is rejected - the message has to say that rather than
 		// claim `é` is not a letter.
 		{"café", "", false},
+		// Odin refuses a source file whose name starts with `_`, and the file is named after the
+		// package. `.mylib` reaches the same place, since a leading separator becomes an underscore.
+		{"_internal", "", false},
+		{".mylib", "", false},
+		// The file would be `<name>.odin`, whose trailing target name Odin reads as a build tag - the
+		// package would then compile on that one target and be invisible everywhere else.
+		{"odin-js", "", false},
+		{"thing_amd64", "", false},
+		{"_js", "", false},
+		// ... but only at an underscore boundary: these merely end in the same letters.
+		{"odinjs", "odinjs", true},
+		{"jsonwasm32", "jsonwasm32", true},
 	}
 	for c in cases {
 		got, reason, ok := odin_package_name(c.input)

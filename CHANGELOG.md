@@ -9,6 +9,8 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-09
+
 ### Added
 
 - **`odin-skel new --lib` scaffolds a library instead of an executable** — an Odin source package that
@@ -21,10 +23,13 @@ release deliberately — a release with no notes is the thing this file exists t
   (`odin-toml` → `odin_toml`), since a directory name frequently is not one. A name that cannot be
   repaired that way is rejected with a reason rather than mangled: a leading digit, an Odin keyword,
   non-ASCII, `main` (the examples are `package main`, and two packages of one name in a build is an
-  error), or a trailing target name. That last one is the subtle case — the package file is named after
-  the package, and Odin reads a trailing `_js` / `_linux` / `_amd64` in a *file name* as a build tag, so
-  `--pkg=odin_js` would write `odin_js.odin` and the library's contents would be invisible on every
-  other target.
+  error), a leading underscore, or a trailing target name.
+
+  The last two are subtle, and both follow from the package file being named after the package. Odin
+  refuses to compile a source file whose name begins with `_`, and it reads a trailing `_js` / `_linux`
+  / `_amd64` in a *file name* as a build tag — so `--pkg=odin_js` would write `odin_js.odin` and the
+  library's contents would be invisible on every target but one. Both used to scaffold cleanly and fail
+  on the first `just check`.
 
   A library project gets `just check`, `just example NAME`, `just examples` and `just doc` in place of
   the `run_*` / `rerun_*` build ladder, `sanitize` and `diagnose`, none of which have anything to build.
@@ -532,7 +537,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.5.0...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.6.0...HEAD
+[0.6.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.6.0
 [0.5.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.5.0
 [0.4.4]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.4
 [0.4.3]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.3

@@ -5,24 +5,16 @@
 // file no longer matches the repository.
 package skel
 
-TEMPLATES :: []Template {
+TEMPLATES :: []Template{
 	{path = ".editorconfig", data = #load("../../.editorconfig", string)},
 	{path = ".gitattributes", data = #load("../../.gitattributes", string)},
 	{path = ".gitignore", data = #load("../../.gitignore", string)},
+	{path = ".sublime/Just-Odin-lib.sublime-snippet", data = #load("../../.sublime/Just-Odin-lib.sublime-snippet", string)},
 	{path = ".sublime/Just-Odin.sublime-snippet", data = #load("../../.sublime/Just-Odin.sublime-snippet", string)},
-	{
-		path = ".sublime/Odin-skeleton.sublime-snippet",
-		data = #load("../../.sublime/Odin-skeleton.sublime-snippet", string),
-	},
+	{path = ".sublime/Odin-skeleton.sublime-snippet", data = #load("../../.sublime/Odin-skeleton.sublime-snippet", string)},
 	{path = ".sublime/Odin.sublime-build", data = #load("../../.sublime/Odin.sublime-build", string)},
-	{
-		path = ".sublime/OdinJustTarget.sublime-build",
-		data = #load("../../.sublime/OdinJustTarget.sublime-build", string),
-	},
-	{
-		path = ".sublime/odin-lang-skeleton.sublime-project",
-		data = #load("../../.sublime/odin-lang-skeleton.sublime-project", string),
-	},
+	{path = ".sublime/OdinJustTarget.sublime-build", data = #load("../../.sublime/OdinJustTarget.sublime-build", string)},
+	{path = ".sublime/odin-lang-skeleton.sublime-project", data = #load("../../.sublime/odin-lang-skeleton.sublime-project", string)},
 	{path = "LICENSE", data = #load("../../LICENSE", string)},
 	{path = "README.md", data = #load("../../README.md", string)},
 	{path = "justfile", data = #load("../../justfile", string)},

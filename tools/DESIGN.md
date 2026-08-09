@@ -466,12 +466,27 @@ way: every name compared unequal, so nothing was dropped, and scaffolding produc
 skeleton's own recipes still in it and no error anywhere. Both drop sets are now `@(rodata)` arrays,
 which have a lifetime that outlives the call.
 
-**The Sublime build stub cannot be marked per kind.** `sublime-build-init` is a `[script]` recipe that
-writes a `build_systems` entry, and its `shell_cmd` has to name a recipe that exists. Marker blocks
-would work in a scaffolded project but not here: this repository's own justfile is the unstripped one,
-so both branches would be emitted and the stub would carry two `shell_cmd` keys. The stub therefore
-seeds `just test`, the one recipe both kinds have, and lists the rest as commented variants — comments
-are harmless in every context, stripped or not.
+**A marker block cannot live inside a recipe that generates a file.** `sublime-build-init` is a
+`[script]` recipe that writes a `build_systems` entry, and its `shell_cmd` has to name a recipe that
+exists. Marking the two branches would work in a scaffolded project but not here: this repository's own
+justfile is the unstripped one, so *both* would execute and the stub would carry two `shell_cmd` keys.
+It therefore seeds `just test`, the one recipe both kinds have, and lists the rest as commented
+variants — comments are harmless in every context, stripped or not.
+
+**The Sublime build systems are global, so they are never stripped.** `OdinJustTarget.sublime-build`
+names recipes in its `project - just ...` variants, half of which exist in only one kind, which looks
+like a case for kind markers. It is not: `just install-sublime` copies these files into Sublime's
+global `Packages/User`, where they match on `source.odin` and drive *every* Odin project on the
+machine. A copy specialised to the project it was scaffolded from would take the other kind's build
+variants away everywhere — scaffold a library, install, and your executable projects lose `just run`.
+
+So the file lists both kinds and is copied verbatim. A variant naming a recipe the current project does
+not define simply fails if you pick it; a variant missing from the global copy is gone for good. The
+same reasoning applies to `Odin.sublime-build`, which is already kind-agnostic because it invokes
+`odin` directly rather than going through `just`.
+
+A consequence worth stating: `marker_text` deliberately has no `//` spelling, so kind markers added to
+a `.sublime-build` file would be inert rather than wrong-looking. A test asserts none are present.
 
 ### Tool changes
 
@@ -589,9 +604,8 @@ Not decided; deliberately deferred.
   scaffolded library that carried one would be advertising itself to a service its author never chose.
   Anyone who wants one can add six lines
 
-* whether `release` and `changelog_section` should leave the `# >>> skeleton-only` block. A library is
-  tagged and pinned by its consumers, so a scaffolded library wants a release path far more than a
-  scaffolded application does. Applies to both kinds if it is done at all
+* ~~`release` and `changelog_section` leaving the `# >>> skeleton-only` block~~ — **decided: they stay.**
+  Both need files a scaffolded project never receives, so they would only ever error. See Decision 4f
 
 * a native-artifact kind (`-build-mode:shared|static`) for C consumers, deliberately excluded from
   Decision 4. It needs exported entry points, a `context` established at every boundary, a hand-written

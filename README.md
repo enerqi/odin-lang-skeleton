@@ -176,12 +176,17 @@ subpackages, add an aggregator example that names them all:
 ```odin
 package all
 
-@(require) import ".."
+@(require) import lib ".."
 @(require) import "../sub"
 ```
 
-`just examples` then type checks the whole tree through it. `@(require)` is load-bearing — without it an
-unreferenced import is dropped and the check passes vacuously.
+`just examples` then type checks the whole tree through it. Two things are load-bearing here:
+
+* `@(require)` — without it an unreferenced import is dropped and the check passes vacuously
+* the explicit `lib` name on the `".."` import. Odin derives an import's name from its directory, and a
+  repository directory is often not a valid identifier: from a checkout named `odin-toml` a bare
+  `import ".."` fails with `Import name 'odin-toml' is not a valid identifier`. The same applies to the
+  examples themselves, which is why `basic.odin` imports `lib ".."`
 
 **Tag your releases.** Odin has no package manager, so a consumer pins you by git tag or by whatever
 revision they happened to copy. A tag is the only thing that lets them say which version they have, and
@@ -260,7 +265,7 @@ and the examples are what prove the package is usable from outside it:
 **Housekeeping:**
 
 * `just clean` — wipe the `target` directory
-* `just mktarget_dirs` — create the `target` directory tree (auto-called by the `run_*` tasks)
+* `just mktarget_dirs` — create the `target` directory tree (auto-called by every task that builds)
 
 **Editor setup** (these three run on Python via [uv](https://docs.astral.sh/uv/) — see
 [Editor setup needs uv](#editor-setup-needs-uv)):
@@ -466,17 +471,30 @@ parameters or multi stage conditional build steps. Rare custom steps are easy en
 task arguments, but frequently ran things maybe more conveniently executed through a sublime build file and so require
 some project specific customisation.
 
-The sublime `.sublime-snippet` example triggers creation of this "main" skeleton, useful when you want a quick script
-file without necessarily using the `justfile` for build management (triggered by `main`). Similarly, there is a snippet
-for filling in a new empty Justfile (triggered by `odin`).
+Three `.sublime-snippet` files ship here. Each carries a `tabTrigger` (type it, press Tab) and a `description`, which is
+what shows beside the trigger in the completion popup and is how they are listed under Tools → Snippets… — worth knowing,
+because a `tabTrigger` only helps somebody who already knows to type it:
+
+| trigger | scope | fills in |
+| --- | --- | --- |
+| `main` | `source.odin` | the `main.odin` program skeleton — logging, tracking allocator, backtraces. Useful for a quick script file without a `justfile` |
+| `odin` | `source.just` | a justfile for an Odin **program** — the build tiers, `test`, `lint` |
+| `odinlib` | `source.just` | a justfile for an Odin **library** — `check`, `example`, `examples`, `doc`, `test` |
+
+The two justfile snippets exist separately because a justfile is one project kind's justfile; unlike the build systems
+below, one copy cannot serve both.
 
 Sublime snippets and build systems are installed **globally**, not per project: Sublime loads everything under its
 `Packages/User` folder and offers it (snippets by `tabTrigger` within the matching `scope`; build systems in the
 Tools → Build System menu) in all windows. So you install them once and they apply everywhere.
 
-`just install-sublime` does this for you, cross platform — it copies the two `.sublime-snippet` files and the two
+`just install-sublime` does this for you, cross platform — it copies the three `.sublime-snippet` files and the two
 `.sublime-build` files into Sublime's `Packages/User` directory (resolved per-OS; override with the `SUBLIME_USER_DIR`
 env var if your install is non-standard). The per-project `.sublime-project` file is intentionally not installed.
+
+Because that install is global, the `.sublime-build` files list **both** project kinds' recipes and are copied verbatim
+into every scaffolded project — a copy specialised to the project it came from would take the other kind's build
+variants away everywhere. A variant naming a recipe your project does not define simply fails if you pick it.
 
 If instead you want a **project-local** build system — one that only shows up when this project is open and needs no
 global install — Sublime reads it from the `"build_systems"` key inside the `.sublime-project` file (loaded
@@ -516,20 +534,23 @@ These last two sections maintain this skeleton repository itself, not a project 
 snippet-generator recipes from the copied justfile (they only maintain this skeleton) — once detached, treat the copied
 snippets as a one-off starting point rather than something kept in sync.
 
-These two snippets are **generated** from `main.odin` and the `justfile` (their single source of truth) so they cannot
+All three snippets are **generated** from `main.odin` and the `justfile` (their single source of truth) so they cannot
 silently drift out of date:
 
-* `just snippets` regenerates `.sublime/Odin-skeleton.sublime-snippet` and `.sublime/Just-Odin.sublime-snippet`. Run it
-  after editing `main.odin` or the `justfile`.
+* `just snippets` regenerates `.sublime/Odin-skeleton.sublime-snippet`, `.sublime/Just-Odin.sublime-snippet` and
+  `.sublime/Just-Odin-lib.sublime-snippet`. Run it after editing `main.odin` or the `justfile`.
 * `just snippets-check` exits non-zero (with a diff) if the committed snippets no longer match what generation would
   produce — wire it into a pre-commit hook or CI to catch drift.
 
 The generator only adds the snippet XML wrapper plus a few `${n:default}` interactive fields (package name, the
 `main_program` body, the `#config` defaults, the executable names). Recipes fenced by `# >>> name` / `# <<< name`
-markers in the `justfile` are stripped from the Justfile snippet. Two marker names are used: `skeleton-only` (e.g.
-`new`, `snippets` — meaningless outside this repo, so `just new` also drops them) and `snippet-exclude` (e.g.
-`sublime-build-init` — kept by `just new` but left out of the snippet because it contains literal `$` that Sublime would
-otherwise parse as snippet fields).
+markers in the `justfile` are stripped from the Justfile snippets. Four marker names are used:
+
+* `skeleton-only` — e.g. `new`, `snippets`. Meaningless outside this repo, so `just new` drops them too
+* `snippet-exclude` — e.g. `sublime-build-init`. Kept by `just new`, but left out of the snippets because it contains
+  literal `$` that Sublime would otherwise parse as snippet fields
+* `exe-only` / `lib-only` — the recipes belonging to one project kind. Each justfile snippet keeps its own kind's block
+  and drops the other's, which is the same split `odin-skel new --lib` applies
 
 ### Cutting a release
 

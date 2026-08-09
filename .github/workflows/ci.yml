@@ -160,6 +160,12 @@ jobs:
               exit 1
             fi
           done
+          # The Sublime build system is deliberately NOT stripped: `just install-sublime` puts it in
+          # Sublime's global Packages/User, where it serves every Odin project on the machine, so it
+          # has to keep both kinds' variants. Assert that rather than let a future strip look tidy.
+          build_system=.sublime/OdinJustTarget.sublime-build
+          grep -q "project - just check" "$build_system"
+          grep -q "project - just run (debug)" "$build_system"
 
       # The `--linker` path needs its own end-to-end run: the unit tests prove the justfile line is
       # rewritten, but only an actual build proves the value survives into `odin` and links.

@@ -19,8 +19,12 @@ release deliberately — a release with no notes is the thing this file exists t
 
   `--pkg=NAME` names the package; without it the project name is turned into a legal Odin identifier
   (`odin-toml` → `odin_toml`), since a directory name frequently is not one. A name that cannot be
-  repaired that way — a leading digit, an Odin keyword, characters that are not letters, digits or
-  separators — is rejected with a reason rather than mangled.
+  repaired that way is rejected with a reason rather than mangled: a leading digit, an Odin keyword,
+  non-ASCII, `main` (the examples are `package main`, and two packages of one name in a build is an
+  error), or a trailing target name. That last one is the subtle case — the package file is named after
+  the package, and Odin reads a trailing `_js` / `_linux` / `_amd64` in a *file name* as a build tag, so
+  `--pkg=odin_js` would write `odin_js.odin` and the library's contents would be invisible on every
+  other target.
 
   A library project gets `just check`, `just example NAME`, `just examples` and `just doc` in place of
   the `run_*` / `rerun_*` build ladder, `sanitize` and `diagnose`, none of which have anything to build.
@@ -32,6 +36,19 @@ release deliberately — a release with no notes is the thing this file exists t
   `skeleton-only` ones, so one template serves both project kinds rather than two copies drifting
   apart. `just embed` records which kind each template file belongs to, and `just embed-check` verifies
   the counts.
+
+- `OdinJustTarget.sublime-build` gained `check` / `example basic` / `examples` / `doc` variants beside
+  the existing `run_*` ones. It is deliberately *not* split per kind: `just install-sublime` copies it
+  into Sublime's global `Packages/User`, where it matches on `source.odin` and serves every Odin
+  project on the machine, so it has to carry both kinds' recipes.
+
+- A third generated snippet, `.sublime/Just-Odin-lib.sublime-snippet` (tab trigger `odinlib`), fills in
+  a library justfile. Unlike the build systems, a justfile snippet *is* one project kind's justfile, so
+  it cannot be shared — `Just-Odin` (trigger `odin`) stays the program one.
+
+  All three snippets now also carry a `<description>`, which is what Sublime shows beside the trigger in
+  the completion popup and what Tools → Snippets… lists them under. A `tabTrigger` alone only helps
+  somebody who already knows to type it.
 
 - `just lint_lib_template` / `just test_lib_template`, wired into CI. The library template is a real
   package in this repository (`mylib/`) rather than inert text, so it is linted, tested and its example

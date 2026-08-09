@@ -99,6 +99,9 @@ run :: proc() -> int {
 		defer delete(positional)
 		linker := ""
 		pkg := ""
+		// Tracked separately from `pkg != ""`, so that `--pkg=` with an empty value is an error rather
+		// than a silent fall back to the derived name - somebody who typed the flag meant to choose.
+		pkg_given := false
 		kind := Project_Kind.Exe
 		for i := 1; i < len(args); i += 1 {
 			arg := args[i]
@@ -142,7 +145,11 @@ run :: proc() -> int {
 				}
 				linker = value
 			case "--pkg":
-				pkg = value
+				if value == "" {
+					fmt.eprintln("odin-skel: --pkg needs a package name, e.g. --pkg=my_lib")
+					return 2
+				}
+				pkg, pkg_given = value, true
 			}
 		}
 
@@ -156,7 +163,7 @@ run :: proc() -> int {
 		// Accepted rather than rejected when `--lib` is absent: it is only ever a hint about a
 		// library, and a stray one should not fail a scaffold that otherwise succeeds. Say so, since
 		// silently ignoring a flag somebody typed is how a wrong package name goes unnoticed.
-		if pkg != "" && kind != .Lib {
+		if pkg_given && kind != .Lib {
 			fmt.eprintln("odin-skel: --pkg only applies to --lib; ignoring it")
 		}
 		name := len(positional) >= 2 ? positional[1] : ""

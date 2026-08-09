@@ -226,6 +226,8 @@ test_set_linker_default_on_the_real_justfile :: proc(t: ^testing.T) {
 	// Only the one line may change: the recipes that consume {{linker}} and the comment block above
 	// the assignment both have to come through untouched.
 	testing.expect(t, strings.contains(got, "-linker:{{linker}} -out:"), "the recipes were damaged")
+	// The example lines in that comment are themselves kind-specific, so this is the exe spelling -
+	// `stripped` above was produced with the exe drop set.
 	testing.expect(t, strings.contains(got, "ODIN_LINKER=lld just run"), "the comment block was damaged")
 	testing.expect_value(t, strings.count(got, "\n"), strings.count(stripped, "\n"))
 }
@@ -320,6 +322,117 @@ check:
 	testing.expect(t, !strings.contains(for_lib, ">>>"), "a marker line leaked")
 }
 
+/*
+Every `>>> name` in an embedded template must have a matching `<<< name`.
+
+`strip_marked_blocks` has no runtime guard for this, unlike its Python twin in the justfile, and that is
+deliberate: the templates are `#load`ed at compile time, so a balanced file stays balanced for the life
+of the binary. Checking here catches it before release instead of letting `odin-skel new` truncate a
+generated justfile from the missing marker onwards and still report `created N files` with exit 0.
+
+Blocks do not nest, so a simple open/close pairing is the whole contract.
+*/
+@(test)
+test_embedded_templates_have_balanced_markers :: proc(t: ^testing.T) {
+	for tmpl in TEMPLATES {
+		open := ""
+		line_no := 0
+		rest := tmpl.data
+		for len(rest) > 0 {
+			line: string
+			if i := strings.index_byte(rest, '\n'); i >= 0 {
+				line, rest = rest[:i], rest[i + 1:]
+			} else {
+				line, rest = rest, ""
+			}
+			line_no += 1
+
+			marker := marker_text(strings.trim_space(line))
+			switch {
+			case strings.has_prefix(marker, ">>> "):
+				testing.expectf(
+					t,
+					open == "",
+					"%s:%d: `%s` opens while `>>> %s` is still open",
+					tmpl.path,
+					line_no,
+					marker,
+					open,
+				)
+				open = marker[4:]
+			case strings.has_prefix(marker, "<<< "):
+				testing.expectf(
+					t,
+					open == marker[4:],
+					"%s:%d: `%s` closes a block that is not open (open: %q)",
+					tmpl.path,
+					line_no,
+					marker,
+					open,
+				)
+				open = ""
+			}
+		}
+		testing.expectf(t, open == "", "%s: `>>> %s` is never closed", tmpl.path, open)
+	}
+}
+
+@(test)
+test_marker_spellings :: proc(t: ^testing.T) {
+	for line in ([]string{"# >>> exe-only", "<!-- >>> exe-only -->"}) {
+		testing.expectf(t, marker_text(line) == ">>> exe-only", "%q was not recognised as a marker", line)
+	}
+	// Not markers: a shebang, a `//` comment and ordinary prose all read as empty. The `//` case
+	// matters - the `.sublime-build` files are full of them and are deliberately never stripped.
+	for line in ([]string{"#!/bin/sh", "// >>> exe-only", "just some text", "#"}) {
+		testing.expectf(t, marker_text(line) == "", "%q was mistaken for a marker", line)
+	}
+}
+
+/*
+The Sublime build systems must reach both project kinds intact.
+
+`just install-sublime` copies them into Sublime's global `Packages/User`, where they match on
+`source.odin` and drive every Odin project on the machine - so a copy specialised to the project it
+was scaffolded from would take the other kind's build variants away everywhere. Scaffolding therefore
+does not strip them, and they list both kinds' recipes.
+*/
+@(test)
+test_sublime_build_serves_both_kinds :: proc(t: ^testing.T) {
+	source := ""
+	for tmpl in TEMPLATES {
+		if tmpl.path == ".sublime/OdinJustTarget.sublime-build" {
+			source = tmpl.data
+			break
+		}
+	}
+	testing.expect(t, source != "", "OdinJustTarget.sublime-build missing from TEMPLATES - run `just embed`")
+
+	// Matched on the variant names: the `shell_cmd` values carry JSON-escaped quotes, and `run` is a
+	// prefix of `run_release`.
+	for wanted in ([]string{
+			"project - just run (debug)",
+			"project - just run_release\"",
+			"project - just sanitize",
+			"project - just diagnose",
+			"project - just check",
+			"project - just doc",
+			"project - just examples",
+			"project - just test\"",
+			"project - just test_sanitize",
+		}) {
+		testing.expectf(t, strings.contains(source, wanted), "%q is missing from the build system", wanted)
+	}
+	// Kind markers here would be silently inert, because `marker_text` does not recognise the `//`
+	// spelling and nothing strips this file anyway. That is a worse failure than a leak - it looks like
+	// it works - so assert that nobody has added them expecting otherwise.
+	testing.expect(
+		t,
+		!strings.contains(source, ">>> exe-only") && !strings.contains(source, ">>> lib-only"),
+		"this file is never stripped, so kind markers in it would do nothing",
+	)
+}
+
 // The case the end-to-end scaffold exercises: the real justfile, stripped for a library. The exe
 // build tiers have to go, the shared recipes have to stay, and the skeleton's own recipes must not
 // survive in either kind.
@@ -369,6 +482,13 @@ test_odin_package_name :: proc(t: ^testing.T) {
 		{"map", "", false},
 		{"-", "", false},
 		{"weird!name", "", false},
+		// Not an Odin keyword, but unusable here: the examples are `package main` and import the
+		// library, and two packages of the same name in one build is a compile error. Rejecting it at
+		// scaffold time is the difference between a clear message and `just example` failing later.
+		{"main", "", false},
+		// Byte-wise validation, so non-ASCII is rejected - the message has to say that rather than
+		// claim `é` is not a letter.
+		{"café", "", false},
 	}
 	for c in cases {
 		got, reason, ok := odin_package_name(c.input)

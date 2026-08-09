@@ -82,6 +82,11 @@ Two spellings are recognised so the same mechanism works in both file types the 
 
 Markdown cannot use the `#` form: a line starting with `#` is a heading, so the marker would show up
 as a title on the repository's front page.
+
+There is deliberately no `//` spelling for the `.sublime-build` files. They are not stripped at all:
+`just install-sublime` copies them into Sublime's global `Packages/User`, where they match on
+`source.odin` and serve every Odin project on the machine, so they must list both kinds' recipes
+rather than the scaffolded project's.
 */
 marker_text :: proc(trimmed: string) -> string {
 	if strings.has_prefix(trimmed, "# ") {
@@ -110,15 +115,20 @@ verbatim and was documenting recipes (`just new`, `just snippets`) that the stri
 longer contains; .gitattributes because its `linguist-generated` rules name `tools/`, which a
 scaffolded project never receives.
 
-Blocks do not nest. A `>>> a` inside a dropped `>>> b` would be swallowed as ordinary text, and the
-first `<<<` seen while dropping ends the drop whatever it names, so nesting would silently mis-cut.
+Only the marker that opened a drop can close it, and nothing re-opens one while a drop is already open.
+Blocks do not nest today; tracking the open block's name rather than a bare flag costs nothing and
+means a future nested block cannot silently spill the rest of its parent into the output.
+
+An unterminated block is not detected here - the templates are compiled in, so it cannot vary at
+runtime, and `test_embedded_templates_have_balanced_markers` catches it at build time instead.
 */
 strip_marked_blocks :: proc(text: string, drop: []string, allocator := context.allocator) -> string {
 	b := strings.builder_make(allocator)
 	// The result is a fresh allocation below, so the builder's scratch buffer must not outlive us.
 	defer strings.builder_destroy(&b)
 
-	skip := false
+	// The name of the block currently being dropped, or "" for none.
+	dropping := ""
 	rest := text
 	for len(rest) > 0 {
 		line: string
@@ -132,14 +142,14 @@ strip_marked_blocks :: proc(text: string, drop: []string, allocator := context.a
 		switch {
 		case strings.has_prefix(marker, ">>> "):
 			// A block not being dropped still loses its marker line: it only means something here.
-			if name_in(drop, marker[4:]) {
-				skip = true
+			if name := marker[4:]; dropping == "" && name_in(drop, name) {
+				dropping = name
 			}
 		case strings.has_prefix(marker, "<<< "):
-			if name_in(drop, marker[4:]) {
-				skip = false
+			if dropping == marker[4:] {
+				dropping = ""
 			}
-		case !skip:
+		case dropping == "":
 			strings.write_string(&b, line)
 		}
 	}
@@ -240,6 +250,39 @@ rewrite_package_clause :: proc(
 	return "", false
 }
 
+/*
+Target names Odin reads as a build tag on the END OF A FILE NAME - `foo_windows.odin` is compiled only
+when targeting Windows.
+
+This is a constraint on the package name because the lib template names its file after the package:
+`--pkg=odin_js` writes `odin_js.odin`, whose trailing `_js` excludes it from every target but
+WebAssembly/JS. The scaffold succeeds, and then the library's own contents are invisible - `just check`
+reports `Undeclared name: add` about a procedure that is right there in the file.
+
+Taken from the compiler's own tables, `src/build_settings.cpp` (`target_os_names`, `target_arch_names`).
+*/
+ODIN_TARGET_SUFFIXES :: []string {
+	// operating systems
+	"windows",
+	"darwin",
+	"linux",
+	"freebsd",
+	"openbsd",
+	"netbsd",
+	"wasi",
+	"js",
+	"orca",
+	"freestanding",
+	// architectures
+	"amd64",
+	"i386",
+	"arm32",
+	"arm64",
+	"wasm32",
+	"wasm64p32",
+	"riscv64",
+}
+
 // Words Odin reserves. A package clause using one is a compile error, and the error points at the
 // generated file rather than at the name that was passed in, so it is caught here instead.
 ODIN_KEYWORDS :: []string {
@@ -319,7 +362,10 @@ odin_package_name :: proc(
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
 			strings.write_byte(&b, c)
 		case:
-			return "", "it contains characters that are not letters, digits, `-`, `.`, `_` or spaces", false
+			// Byte-wise, so anything outside ASCII lands here. Odin identifiers do accept unicode
+			// letters, so the message names the constraint this check actually imposes rather than
+			// telling somebody scaffolding `../café` that `é` is not a letter.
+			return "", "it contains characters outside ASCII letters, digits, `-`, `.`, `_` and spaces", false
 		}
 	}
 
@@ -331,6 +377,26 @@ odin_package_name :: proc(
 	}
 	if name_in(ODIN_KEYWORDS, candidate) {
 		return "", "it is an Odin keyword", false
+	}
+	// Legal Odin, but not here: the examples are `package main` and import the library, and two
+	// packages of the same name in one build is an error. It surfaces as a compile failure in
+	// `just example` long after scaffolding claimed success, so it is caught with the other names
+	// that cannot work.
+	if candidate == "main" {
+		return "", "the examples are `package main`, so the library cannot also be called `main`", false
+	}
+	// The package file is named after the package, and Odin reads a trailing target name in a file name
+	// as a build tag. `odin_js` would write `odin_js.odin`, compiled on nothing but a JS target.
+	// Every other reason is a literal, so this one is too: an allocated message would be the only
+	// return the caller had to free.
+	for suffix in ODIN_TARGET_SUFFIXES {
+		if len(candidate) > len(suffix) + 1 &&
+		   strings.has_suffix(candidate, suffix) &&
+		   candidate[len(candidate) - len(suffix) - 1] == '_' {
+			return "",
+				"the package file is named after the package, and Odin reads a trailing target name (`_js`, `_linux`, `_amd64`, ...) in a file name as a build tag - the package would compile on that one target only",
+				false
+		}
 	}
 	// `_` alone is Odin's blank identifier, and a name made entirely of separators leaves nothing of
 	// the project in it anyway.

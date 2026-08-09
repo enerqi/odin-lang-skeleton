@@ -97,6 +97,18 @@ usually it was just `git init`-ed; any other content makes it refuse). `NAME` de
 Add `--linker=VALUE` (`default`, `lld`, `radlink` or `mold`) to pin the new project's linker for every platform
 instead of inheriting the per-OS default — see [Choosing a linker](#choosing-a-linker).
 
+Add `--lib` to scaffold a **library** rather than an executable — an Odin source package that other projects copy
+into their tree and import, with the destination directory as the package itself and examples under `examples/`.
+The package name is derived from `NAME` by turning `-`, `.` and spaces into underscores (`odin-toml` → `odin_toml`),
+since a directory name is not always a legal `package` clause; `--pkg=NAME` overrides it. A library project gets
+`just check`, `just example NAME`, `just examples` and `just doc` in place of the `run_*` / `rerun_*` build ladder,
+which has nothing to build.
+
+```
+odin-skel new ../odin-toml --lib               # package odin_toml
+odin-skel new ../odin-toml --lib --pkg=toml    # package toml
+```
+
 Only git-tracked files are copied, so build artifacts, `.git/` and untracked local files are left behind. A few things
 are rewritten rather than copied verbatim:
 
@@ -115,12 +127,75 @@ generator that keeps them in sync stays behind — see [Generated editor snippet
 
 <!-- <<< skeleton-only -->
 
+<!-- >>> lib-only -->
+## Layout
+
+This project is a library: an Odin source package, not something that builds an artifact. **The repository root is
+the package.** That is the layout the surrounding Odin ecosystem uses — a consumer clones or copies this directory
+into their own tree, frequently renaming it on the way, and imports it by path:
+
+```
+git clone <this repo> libs/toml     # the directory name they pick becomes the import path
+```
+
+```odin
+import "libs/toml"                  # or through a collection: -collection:libs=libs, then import "libs:toml"
+```
+
+```
+.
+├── <pkg>.odin           <- the package; add more files beside it
+├── <pkg>_test.odin
+├── examples/
+│   └── basic.odin       <- package main, built with -file
+└── justfile  README.md  ...
+```
+
+**The package name must be a valid Odin identifier**, which a repository name often is not: `odin-toml` is a fine
+directory name and an illegal `package` clause. `odin-skel new --lib` derives one by turning `-`, `.` and spaces into
+underscores, or takes `--pkg=NAME` if you would rather choose.
+
+**Examples are single-file `main` packages**, built with `-file` so several can share `examples/` without their
+`main` procedures colliding. In `-file` mode a relative import resolves against the file's own directory, so an
+example imports `".."` — one level, not two. Get it wrong and Odin reports
+`Syntax Error: Empty directory that contains no .odin files: ../..`, which names the path but not the reason.
+`just examples` type checks all of them, which is what stops an API change from quietly invalidating the docs.
+
+**Tests live in the package**, as `<pkg>_test.odin` beside the source, so they can reach `@(private)` symbols. The
+cost is that a consumer building the package also builds `import "core:testing"`, and optimization does not remove
+it: the `@(test)` bodies are eliminated, but `core:testing`'s transitive `@(init)`/`@(fini)` procedures are entry
+points and stay live. Measured on `-o:speed`, that is up to ~8.6 KB against a consumer importing nothing else from
+`core`, and ~80 bytes against one already using `core:log` — nearly all of the cost is overlap with packages a real
+program links anyway. If it matters (a freestanding or WASM consumer, say), move the tests into a `tests/` package
+that imports this one, the way Odin's own `core` does.
+
+**Growing past one package**: add subdirectories, each its own package, and keep the root package as the entry
+point. `odin check .` only ever covers the root package and there is no whole-tree `check`, so once there are
+subpackages, add an aggregator example that names them all:
+
+```odin
+package all
+
+@(require) import ".."
+@(require) import "../sub"
+```
+
+`just examples` then type checks the whole tree through it. `@(require)` is load-bearing — without it an
+unreferenced import is dropped and the check passes vacuously.
+
+**Tag your releases.** Odin has no package manager, so a consumer pins you by git tag or by whatever
+revision they happened to copy. A tag is the only thing that lets them say which version they have, and
+the only way you can change an API without breaking whoever vendored you last month. Nothing here
+automates that — a `CHANGELOG.md` and a tagging habit are yours to add if you want them.
+
+<!-- <<< lib-only -->
 ## Tasks
 
 A `justfile` is part of this opinionated setup and you may need to edit the tasks as new packages are added in
 sub-directories. [Just >=1.49](https://just.systems/) is a CLI task runner that you *need to install*. Run any task
 with `just TASK`:
 
+<!-- >>> exe-only -->
 **Build & run** — `odin run` always recompiles the whole package (Odin has no build cache / incremental compilation).
 Each profile writes to its own `target/` sub-directory, so switching between them never clobbers another build:
 
@@ -147,13 +222,28 @@ compile entirely (needs a prior `run_*` of the same profile):
 * `just rerun_release_debug`
 * `just rerun_release`
 * `just rerun_release_nochecks`
+<!-- <<< exe-only -->
+
+<!-- >>> lib-only -->
+**Build & check** — a library has no binary of its own, so there is no build ladder. The inner loop is a type check,
+and the examples are what prove the package is usable from outside it:
+
+* `just check` — type check the library. The fast "does it still compile" pass, without the vet and style flags
+  `just lint` carries
+* `just example NAME` — build and run `examples/NAME.odin`
+* `just examples` — type check every example, so an API change cannot quietly invalidate the documentation
+* `just doc` — print the package documentation (`odin doc .`)
+<!-- <<< lib-only -->
 
 **Quality:**
 
 * `just lint` — type checking, vet warnings, strict style. No code generation
 * `just format` — runs `odinfmt -w .` over the whole tree
 * `just test` / `just test1 NAME` — run all tests / one named test
-* `just sanitize [KIND]` / `just test_sanitize [KIND]` — run the program / the tests under a sanitizer. `KIND` is
+<!-- >>> exe-only -->
+* `just sanitize [KIND]` — the same, but running the program rather than the tests
+<!-- <<< exe-only -->
+* `just test_sanitize [KIND]` — run the tests under a sanitizer. `KIND` is
   `address` (default), `memory` or `thread`. Only `address` is widely supported; `memory` and `thread` need a
   clang-ish toolchain and are unavailable on some platforms (notably Windows/MSVC).
 
@@ -162,8 +252,7 @@ compile entirely (needs a prior `run_*` of the same profile):
   from intercepting the allocator, so it never sees the allocation. Verified by overflowing a 16-byte
   allocation at +24, +32, +64 and +256 bytes: Linux reports `heap-buffer-overflow` at every one, Windows at
   none. The `interception_win: unhandled instruction` line these builds print is that limitation, not a fault
-  in your code. Chase a suspected heap bug on Linux, or with `-define:TRACKING_ALLOCATOR=backtrace`, which
-  does not rely on ASan.
+  in your code. Chase a suspected heap bug on Linux, or with a tracking allocator, which does not rely on ASan.
 
   On Linux the sanitizer runtime is a separate install — without it the link fails on a missing
   `libclang_rt.asan.a`. On Debian/Ubuntu with clang 21 that is `libclang-rt-21-dev`.
@@ -193,8 +282,14 @@ scaffolded project):
 
 Notes:
 
+<!-- >>> exe-only -->
 - All `run_*`, `rerun_*`, `test*` and `diagnose` tasks accept optional extra variadic arguments; add `--` before
   passing arguments to your own program. Edit the `main_name` / `test_main_name` output executable names as needed.
+<!-- <<< exe-only -->
+<!-- >>> lib-only -->
+- `check`, `test*`, `example` and `doc` accept optional extra variadic arguments; add `--` before passing arguments
+  to an example's own `main`. Edit the `test_main_name` output executable name as needed.
+<!-- <<< lib-only -->
 - `format` assumes `odinfmt` is on your `PATH`. It can be built from source within the
   [Odin language server](https://github.com/DanielGavin/ols) code (see `odinfmt.bat` / `odinfmt.sh`). OLS is
   recommended when editing Odin code.
@@ -233,7 +328,7 @@ you plan to use those recipes.
 
 ## Choosing a linker
 
-Odin has no build cache, so it relinks on every `just run`. Which linker does that work is a `linker` variable at the
+Odin has no build cache, so it relinks on every build. Which linker does that work is a `linker` variable at the
 top of the justfile, passed to every recipe that links:
 
 | value | notes |
@@ -245,9 +340,16 @@ top of the justfile, passed to every recipe that links:
 
 Override for a single command without editing anything:
 
+<!-- >>> exe-only -->
 ```sh
 ODIN_LINKER=lld just run
 ```
+<!-- <<< exe-only -->
+<!-- >>> lib-only -->
+```sh
+ODIN_LINKER=lld just test
+```
+<!-- <<< lib-only -->
 
 To change the default for good, edit that `linker` line in the justfile.
 
@@ -274,10 +376,18 @@ LTO little to work with, and statically linked external C libraries do not get L
 project before assuming. `-lto` is also a hard conflict rather than a preference — on Windows it *requires*
 `-linker:lld` — so reach for the override there:
 
+<!-- >>> exe-only -->
 ```sh
 ODIN_LINKER=lld just run_release -lto:thin
 ```
+<!-- <<< exe-only -->
+<!-- >>> lib-only -->
+```sh
+ODIN_LINKER=lld just test -lto:thin
+```
+<!-- <<< lib-only -->
 
+<!-- >>> exe-only -->
 ## Build-time options
 
 `main.odin` carries a few `#config` switches, documented in full where they are declared. Two are
@@ -309,19 +419,34 @@ Backtraces on asserts and segfaults need no define — they are on by default an
 something actually fails. Set `ODIN_BACKTRACE=0` to silence them for a run. Symbol names and line
 numbers come from the debug info, so a `-debug` build gives a readable trace where a release build
 prints bare `0x...` addresses.
+<!-- <<< exe-only -->
 
-**Timing a run** needs no define either — `just --time <recipe>` prints how long the recipe took
-(`JUST_TIME=true` as an env var; note it wants `true`, not `1`):
+## Timing a recipe
 
+`just --time <recipe>` prints how long the recipe took (`JUST_TIME=true` as an env var; note it wants
+`true`, not `1`):
+
+<!-- >>> exe-only -->
 ```
 just --time rerun          ---> rerun_debug completed in 0.159s
 ```
 
 Time a `rerun_*` rather than a `run_*`. Odin has no build cache, so a `run_*` recipe recompiles every
 time and its timing is mostly the compiler — roughly 0.5s of compile against 0.16s of run for a
-hello-world here. Note that any external measurement includes process startup, which was ~31ms on
-this machine, so for sub-second work put `time.now()` / `time.since` around the specific phase you
-care about instead, or reach for the spall profiler above.
+hello-world here.
+<!-- <<< exe-only -->
+<!-- >>> lib-only -->
+```
+just --time test           ---> test completed in 0.412s
+```
+
+Odin has no build cache, so every recipe here recompiles and its timing is mostly the compiler. That
+makes `just --time` useful for tracking what the *build* costs as the library grows, rather than what
+the code costs at runtime.
+<!-- <<< lib-only -->
+
+Note that any external measurement includes process startup, which was ~31ms on this machine, so for
+sub-second work put `time.now()` / `time.since` around the specific phase you care about instead.
 
 ## [Sublime Text](https://www.sublimetext.com/) editor specific files
 
@@ -355,7 +480,7 @@ env var if your install is non-standard). The per-project `.sublime-project` fil
 
 If instead you want a **project-local** build system — one that only shows up when this project is open and needs no
 global install — Sublime reads it from the `"build_systems"` key inside the `.sublime-project` file (loaded
-automatically when you open the project). `just sublime-build-init` seeds that key with one working `just run` build plus
+automatically when you open the project). `just sublime-build-init` seeds that key with one working `just test` build plus
 commented-out variant examples (release / test / lint / current-file) for you to extend; it refuses if the project
 file already has a `build_systems` entry. (`.sublime-project` is loose JSON — `//` comments and trailing commas are
 allowed.)

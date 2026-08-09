@@ -9,6 +9,35 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+### Added
+
+- **`odin-skel new --lib` scaffolds a library instead of an executable** — an Odin source package that
+  other projects clone or copy into their tree and import. The destination directory *is* the package,
+  which is what six of the seven surveyed community libraries do (odin-http, odin-ldtk, toml_parser,
+  back, odin-cli, odin-rure; odin-mimalloc is the exception). A `-collection:` flag is the consumer's
+  choice about their own vendor directory, not something a library repository declares.
+
+  `--pkg=NAME` names the package; without it the project name is turned into a legal Odin identifier
+  (`odin-toml` → `odin_toml`), since a directory name frequently is not one. A name that cannot be
+  repaired that way — a leading digit, an Odin keyword, characters that are not letters, digits or
+  separators — is rejected with a reason rather than mangled.
+
+  A library project gets `just check`, `just example NAME`, `just examples` and `just doc` in place of
+  the `run_*` / `rerun_*` build ladder, `sanitize` and `diagnose`, none of which have anything to build.
+  Examples are single-file `main` packages under `examples/`, built with `-file`; note that in `-file`
+  mode a relative import resolves against the file's own directory, so an example imports `".."` and
+  not the `"../.."` that a deeper `examples/<name>/main.odin` layout would need.
+
+- The justfile and README now carry `exe-only` / `lib-only` marker blocks alongside the existing
+  `skeleton-only` ones, so one template serves both project kinds rather than two copies drifting
+  apart. `just embed` records which kind each template file belongs to, and `just embed-check` verifies
+  the counts.
+
+- `just lint_lib_template` / `just test_lib_template`, wired into CI. The library template is a real
+  package in this repository (`mylib/`) rather than inert text, so it is linted, tested and its example
+  actually run on every commit — the same property that keeps the executable template honest. CI also
+  scaffolds a library end to end on all three platforms and builds it.
+
 ## [0.5.0] - 2026-08-09
 
 ### Changed

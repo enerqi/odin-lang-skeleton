@@ -17,7 +17,7 @@ drop_me:
 also_keep:
 	echo three
 `
-	got := strip_skeleton_only(input)
+	got := strip_marked_blocks(input, drop_names(.Exe))
 	defer delete(got)
 
 	testing.expect(t, strings.contains(got, "keep_me:"))
@@ -34,7 +34,7 @@ kept_recipe:
 	echo hi
 # <<< snippet-exclude
 `
-	got := strip_skeleton_only(input)
+	got := strip_marked_blocks(input, drop_names(.Exe))
 	defer delete(got)
 
 	testing.expect(t, strings.contains(got, "kept_recipe:"), "body of a non-skeleton block was dropped")
@@ -43,7 +43,7 @@ kept_recipe:
 
 @(test)
 test_strip_normalises_trailing_newline :: proc(t: ^testing.T) {
-	got := strip_skeleton_only("a:\n\techo a\n\n\n\n")
+	got := strip_marked_blocks("a:\n\techo a\n\n\n\n", drop_names(.Exe))
 	defer delete(got)
 	testing.expect(t, strings.has_suffix(got, "echo a\n"), "should end with exactly one newline")
 	testing.expect(t, !strings.has_suffix(got, "\n\n"))
@@ -62,7 +62,7 @@ test_strip_on_the_real_justfile :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, source != "", "justfile missing from TEMPLATES - run `just embed`")
 
-	got := strip_skeleton_only(source)
+	got := strip_marked_blocks(source, drop_names(.Exe))
 	defer delete(got)
 
 	for gone in ([]string{"new dest", "build_skel", "lint_skel", "test_skel", "_embed", "_snippets"}) {
@@ -89,7 +89,7 @@ test_strip_on_the_real_gitattributes :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, source != "", ".gitattributes missing from TEMPLATES - run `just embed`")
 
-	got := strip_skeleton_only(source)
+	got := strip_marked_blocks(source, drop_names(.Exe))
 	defer delete(got)
 
 	for gone in ([]string{"linguist-generated", "tools/skel"}) {
@@ -153,7 +153,7 @@ test_project_readme_on_the_real_readme :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, source != "", "README.md missing from TEMPLATES - run `just embed`")
 
-	stripped := strip_skeleton_only(source)
+	stripped := strip_marked_blocks(source, drop_names(.Exe))
 	defer delete(stripped)
 	got := project_readme(stripped, "myproj")
 	defer delete(got)
@@ -205,7 +205,7 @@ test_set_linker_default_on_the_real_justfile :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, source != "", "justfile missing from TEMPLATES - run `just embed`")
 
-	stripped := strip_skeleton_only(source)
+	stripped := strip_marked_blocks(source, drop_names(.Exe))
 	defer delete(stripped)
 	testing.expect(
 		t,
@@ -273,6 +273,196 @@ test_join_path_collapses_separators :: proc(t: ^testing.T) {
 	joined := join_path("out/", "a/b.txt")
 	defer delete(joined)
 	testing.expect_value(t, joined, "out/a/b.txt")
+}
+
+// The drop set is what tells the two project kinds apart, and it is reached through `drop_names`
+// rather than a constant at every call site, so that indirection is what has to be right.
+@(test)
+test_drop_names_per_kind :: proc(t: ^testing.T) {
+	exe := drop_names(.Exe)
+	testing.expect(t, name_in(exe, "skeleton-only"), "exe must drop skeleton-only")
+	testing.expect(t, name_in(exe, "lib-only"), "exe must drop lib-only")
+	testing.expect(t, !name_in(exe, "exe-only"), "exe must keep its own recipes")
+
+	lib := drop_names(.Lib)
+	testing.expect(t, name_in(lib, "skeleton-only"), "lib must drop skeleton-only")
+	testing.expect(t, name_in(lib, "exe-only"), "lib must drop exe-only")
+	testing.expect(t, !name_in(lib, "lib-only"), "lib must keep its own recipes")
+}
+
+// Each kind keeps its own block and drops the other's, and a block named by neither keeps its body.
+@(test)
+test_strip_is_per_kind :: proc(t: ^testing.T) {
+	input := `shared:
+	echo shared
+
+# >>> exe-only
+run:
+	echo run
+# <<< exe-only
+
+# >>> lib-only
+check:
+	echo check
+# <<< lib-only
+`
+	for_exe := strip_marked_blocks(input, drop_names(.Exe))
+	defer delete(for_exe)
+	testing.expect(t, strings.contains(for_exe, "shared:"))
+	testing.expect(t, strings.contains(for_exe, "echo run"), "exe-only body was dropped from an exe project")
+	testing.expect(t, !strings.contains(for_exe, "echo check"), "lib-only body leaked into an exe project")
+
+	for_lib := strip_marked_blocks(input, drop_names(.Lib))
+	defer delete(for_lib)
+	testing.expect(t, strings.contains(for_lib, "shared:"))
+	testing.expect(t, strings.contains(for_lib, "echo check"), "lib-only body was dropped from a lib project")
+	testing.expect(t, !strings.contains(for_lib, "echo run"), "exe-only body leaked into a lib project")
+	testing.expect(t, !strings.contains(for_lib, ">>>"), "a marker line leaked")
+}
+
+// The case the end-to-end scaffold exercises: the real justfile, stripped for a library. The exe
+// build tiers have to go, the shared recipes have to stay, and the skeleton's own recipes must not
+// survive in either kind.
+@(test)
+test_strip_real_justfile_for_lib :: proc(t: ^testing.T) {
+	source := ""
+	for tmpl in TEMPLATES {
+		if tmpl.path == "justfile" {
+			source = tmpl.data
+			break
+		}
+	}
+	testing.expect(t, source != "", "justfile missing from TEMPLATES - run `just embed`")
+
+	got := strip_marked_blocks(source, drop_names(.Lib))
+	defer delete(got)
+
+	// Matched as recipe or assignment headers, not as bare words: `test_main_name` contains
+	// `main_name`, and the shared `mktarget_dirs` comment mentions the build recipes by name.
+	for gone in ([]string{"\nrun_debug *args:", "\nrerun_debug *args:", "\ndiagnose *args:", "\nmain_name :=", "\nbuild_skel *args:", "\n_embed mode:"}) {
+		testing.expectf(t, !strings.contains(got, gone), "%q survived into a library justfile", gone)
+	}
+	for kept in ([]string{"\ncheck *args:", "\nexample name", "\ndoc *args:", "\ntest *args:", "mktarget_dirs"}) {
+		testing.expectf(t, strings.contains(got, kept), "library recipe %q was stripped", kept)
+	}
+}
+
+@(test)
+test_odin_package_name :: proc(t: ^testing.T) {
+	Case :: struct {
+		input: string,
+		want:  string,
+		ok:    bool,
+	}
+	cases := []Case {
+		{"mylib", "mylib", true},
+		{"odin-toml", "odin_toml", true},
+		{"my lib", "my_lib", true},
+		{"a.b.c", "a_b_c", true},
+		{"already_fine", "already_fine", true},
+		{"Mixed-Case", "Mixed_Case", true},
+		{"lib2", "lib2", true},
+		// Not repairable by substitution.
+		{"", "", false},
+		{"2d-math", "", false},
+		{"package", "", false},
+		{"map", "", false},
+		{"-", "", false},
+		{"weird!name", "", false},
+	}
+	for c in cases {
+		got, reason, ok := odin_package_name(c.input)
+		defer if ok {
+			delete(got)
+		}
+		testing.expectf(t, ok == c.ok, "%q: expected ok=%v, got %v (%s)", c.input, c.ok, ok, reason)
+		if ok && c.ok {
+			testing.expectf(t, got == c.want, "%q: expected %q, got %q", c.input, c.want, got)
+		}
+		if !ok {
+			testing.expectf(t, reason != "", "%q was rejected without a reason", c.input)
+		}
+	}
+}
+
+// The lib template's directory prefix comes off and the placeholder package name in the base name is
+// replaced; anything below the template root keeps its own name.
+@(test)
+test_lib_out_path :: proc(t: ^testing.T) {
+	Case :: struct {
+		input: string,
+		want:  string,
+	}
+	cases := []Case {
+		{"mylib/mylib.odin", "toml.odin"},
+		{"mylib/mylib_test.odin", "toml_test.odin"},
+		{"mylib/examples/basic.odin", "examples/basic.odin"},
+	}
+	for c in cases {
+		got, ok := lib_out_path(c.input, "toml")
+		defer if ok {
+			delete(got)
+		}
+		testing.expectf(t, ok, "%q was rejected", c.input)
+		testing.expectf(t, got == c.want, "%q: expected %q, got %q", c.input, c.want, got)
+	}
+
+	// A path outside the template directory means the embed list and this rule have drifted.
+	_, ok := lib_out_path("main.odin", "toml")
+	testing.expect(t, !ok, "a non-template path should be rejected")
+}
+
+@(test)
+test_rewrite_package_clause :: proc(t: ^testing.T) {
+	// The template's own doc comment discusses package names at length, so prose that merely contains
+	// the word - including a line that starts with it - must be left alone.
+	input := `/*
+Rename the directory, this file and the
+package clause together. odin-mylib is a directory, package mylib is the clause.
+*/
+package mylib
+
+add :: proc() {}
+`
+	got, ok := rewrite_package_clause(input, "toml")
+	defer if ok {
+		delete(got)
+	}
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(got, "\npackage toml\n"), "the clause was not rewritten")
+	testing.expect(t, !strings.contains(got, "\npackage mylib\n"), "the old clause survived")
+	testing.expect(t, strings.contains(got, "package clause together"), "prose was rewritten")
+	testing.expect(t, strings.contains(got, "package mylib is the clause"), "prose was rewritten")
+
+	// `package main` examples are never passed through this, and a template that lost its clause is
+	// drift worth failing on rather than skipping.
+	_, missing_ok := rewrite_package_clause("package main\n", "toml")
+	testing.expect(t, !missing_ok, "a missing clause must be reported")
+}
+
+// The two kinds must actually be represented in the embed list, or `--lib` would scaffold a project
+// with no package in it and `new` would still report success.
+@(test)
+test_templates_carry_both_kinds :: proc(t: ^testing.T) {
+	lib_files, exe_files := 0, 0
+	for tmpl in TEMPLATES {
+		switch tmpl.kind {
+		case .Lib:
+			lib_files += 1
+			testing.expectf(
+				t,
+				strings.has_prefix(tmpl.path, LIB_TEMPLATE_DIR + "/"),
+				"%q is kind .Lib but is not under %q",
+				tmpl.path,
+				LIB_TEMPLATE_DIR,
+			)
+		case .Exe:
+			exe_files += 1
+		case .Both:
+		}
+	}
+	testing.expect(t, lib_files > 0, "no lib template files embedded - run `just embed`")
+	testing.expect(t, exe_files > 0, "no exe-only template files embedded - run `just embed`")
 }
 
 // tools/ must never reach a scaffolded project; the embed generator is what enforces it.
@@ -363,7 +553,7 @@ drop this
 
 keep this too
 `
-	got := strip_skeleton_only(input)
+	got := strip_marked_blocks(input, drop_names(.Exe))
 	defer delete(got)
 
 	testing.expect(t, strings.contains(got, "keep this"))
@@ -375,7 +565,7 @@ keep this too
 // A `#` heading must not be mistaken for a marker comment now that markdown is stripped too.
 @(test)
 test_strip_keeps_markdown_headings :: proc(t: ^testing.T) {
-	got := strip_skeleton_only("# Title\n\n## Section\n\ntext\n")
+	got := strip_marked_blocks("# Title\n\n## Section\n\ntext\n", drop_names(.Exe))
 	defer delete(got)
 	testing.expect(t, strings.contains(got, "# Title"), "a markdown H1 was eaten")
 	testing.expect(t, strings.contains(got, "## Section"))
@@ -393,7 +583,7 @@ test_strip_on_the_real_readme :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, source != "", "README.md missing from TEMPLATES - run `just embed`")
 
-	got := strip_skeleton_only(source)
+	got := strip_marked_blocks(source, drop_names(.Exe))
 	defer delete(got)
 
 	// "just new", "just snippets" and "odin-skel" name recipes and a binary that a scaffolded

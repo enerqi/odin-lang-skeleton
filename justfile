@@ -31,7 +31,9 @@ set script-interpreter := ["uv", "run", "--no-project", "-p", "3.14", "python"]
 # corrupt justfile rather than an out-of-date tool. Keep the README and `odin-skel doctor` in step.
 set minimum-version := "1.49.0"
 
+# >>> exe-only
 main_name := "main.exe"
+# <<< exe-only
 test_main_name := "test-main.exe"
 
 # `join`, not the `/` operator: `/` always emits a forward slash, and cmd.exe rejects a forward-slash
@@ -104,9 +106,9 @@ lint *args:
 	odin check . -vet -vet-cast -strict-style -vet-tabs -no-entry-point {{args}}
 
 
-# Every `run_*`, `test*` and `diagnose` recipe depends on this, so it runs before every build - which
-# makes its cost a tax on every iteration, and worth keeping small. odin does not create the output
-# directory (the linker fails with LNK1104), so this cannot just be dropped.
+# Every recipe that produces a binary depends on this, so it runs before every build - which makes its
+# cost a tax on every iteration, and worth keeping small. odin does not create the output directory
+# (the linker fails with LNK1104), so this cannot just be dropped.
 #
 # The directories are created all at once rather than one per line because just starts a new shell
 # per recipe line, and on Windows the shell launch dwarfs the work: hyperfine puts `powershell.exe
@@ -131,6 +133,7 @@ lint *args:
 @mktarget_dirs:
 	for %d in (debug fast_debug release_debug release release_nochecks) do @if not exist target\%d md target\%d || exit /b 1
 
+# >>> exe-only
 # `-debug` implies `-o:none`, so this is the fastest to compile and the friendliest to step through.
 # (-keep-executable so `rerun_debug` can skip recompiling)
 # ---
@@ -204,6 +207,59 @@ run_release_nochecks *args: mktarget_dirs
 # run a debug build under a sanitizer (address | memory | thread)
 sanitize kind="address" *args: mktarget_dirs
 	odin run . -debug -sanitize:{{kind}} -out:{{ target_path("debug", f"sanitize-{{kind}}-{{main_name}}") }} {{args}}
+# <<< exe-only
+# >>> lib-only
+# There is no binary of this project to run, so the inner loop is a type check plus the tests, and the
+# examples are what prove the package is usable from outside it.
+
+# What `just run` is to a program: the fast "does it still compile" loop. Deliberately without the vet
+# and style flags `lint` carries - those are worth a separate, slower pass rather than noise between
+# an edit and knowing whether it type checks.
+#
+# `odin check .` covers the root package, which for a single-package library is all of it; once there
+# are subpackages, an aggregator example is what sweeps them (see the README).
+# ---
+# type check the library
+check *args:
+	odin check . -no-entry-point {{args}}
+
+# `-file` is not optional here: without it odin reads examples/ as one package and the several `main`
+# procedures in it collide. It is also what makes the examples' `".."` import resolve to this directory.
+# Usage:  just example basic
+# ---
+# build and run one example from examples/
+example name *args: mktarget_dirs
+	odin run examples/{{name}}.odin -file -debug -microarch:native -linker:{{linker}} -out:{{ target_path("debug", f"example-{{name}}.exe") }} {{args}}
+
+# An example is documentation, and documentation stops being true the moment the API moves under it.
+# This is the cheap guard against that. Written as a `[script]` because just has no loop and cmd.exe is
+# a poor place to write one.
+# ---
+# type check every example in examples/
+[script]
+examples:
+	import glob, subprocess, sys
+
+	files = sorted(glob.glob("examples/*.odin"))
+	if not files:
+		sys.exit("no examples found in examples/")
+
+	for path in files:
+		print("checking " + path)
+		result = subprocess.run(
+			["odin", "check", path, "-file", "-vet", "-vet-cast", "-strict-style", "-vet-tabs"]
+		)
+		if result.returncode != 0:
+			sys.exit(result.returncode)
+	print("checked " + str(len(files)) + " example(s)")
+
+# Writes to stdout; redirect it to keep a copy. Deliberately NOT `-all-packages`, which documents every
+# package the project *uses* - all of `core:` included - rather than this one.
+# ---
+# print the library's documentation
+doc *args:
+	odin doc . {{args}}
+# <<< lib-only
 
 # same sanitizer options as `sanitize`; see its notes for platform support and the linker note.
 # ---
@@ -211,6 +267,7 @@ sanitize kind="address" *args: mktarget_dirs
 test_sanitize kind="address" *args: mktarget_dirs
 	odin test . -debug -file -sanitize:{{kind}} -out:{{ target_path("debug", f"sanitize-{{kind}}-{{test_main_name}}") }} {{args}}
 
+# >>> exe-only
 # Odin has no build cache, so a plain `run` always rebuilds. Requires a prior `run_debug`/`run` build.
 # ---
 # re-run the last debug binary WITHOUT recompiling
@@ -234,6 +291,7 @@ rerun_release *args:
 # re-run the last nochecks binary without recompiling. Requires a prior `run_release_nochecks` build.
 rerun_release_nochecks *args:
 	{{ target_path("release_nochecks", main_name) }} {{args}}
+# <<< exe-only
 
 # run all tests
 test *args: mktarget_dirs
@@ -265,9 +323,11 @@ clean:
 	if exist target rmdir /s /q target
 	just mktarget_dirs
 
+# >>> exe-only
 # build with some verbose diagnostics
 diagnose *args: mktarget_dirs
 	odin build . -debug -microarch:native -show-more-timings -show-debug-messages -show-timings -linker:{{linker}} -out:{{ target_path("debug", main_name) }} {{args}}
+# <<< exe-only
 
 
 # Cross platform: Sublime then offers them in every window. The `.sublime-project` file is
@@ -349,7 +409,9 @@ sublime-build-init:
 		'            // string escaping: `\\\\(` in this file is the regex `\\(` (a literal open paren).\n'
 		'            "file_regex": "^(.+)\\\\(([0-9]+):([0-9]+)\\\\) (.+)$",\n'
 		'\n'
-		'            "shell_cmd": "just run",\n'
+		'            // `just test` rather than `just run`: it is the one recipe both an executable and a\n'
+		'            // library project have, and this is a stub to edit rather than a finished setup.\n'
+		'            "shell_cmd": "just test",\n'
 		'\n'
 		'            // uncomment / extend; each variant appears under Tools -> Build With... Sublime expands\n'
 		'            // these build variables in shell_cmd / working_dir (full list:\n'
@@ -361,8 +423,13 @@ sublime-build-init:
 		'            //   $project_path    directory containing this .sublime-project file\n'
 		'            // "variants":\n'
 		'            // [\n'
+		'            // (a program has run/run_release; a library has check/example/doc - keep the ones\n'
+		'            //  your project actually defines)\n'
+		'            //     { "name": "run",                    "shell_cmd": "just run" },\n'
 		'            //     { "name": "release",                "shell_cmd": "just run_release" },\n'
-		'            //     { "name": "test",                   "shell_cmd": "just test" },\n'
+		'            //     { "name": "check",                  "shell_cmd": "just check" },\n'
+		'            //     { "name": "example basic",          "shell_cmd": "just example basic" },\n'
+		'            //     { "name": "doc",                    "shell_cmd": "just doc" },\n'
 		'            //     { "name": "lint",                   "shell_cmd": "just lint" },\n'
 		'            //     { "name": "current file (run)",     "shell_cmd": "odin run \\"$file\\" -file -debug" },\n'
 		'            //     { "name": "current package",        "shell_cmd": "odin build \\"$file_path\\" -debug" },\n'
@@ -422,6 +489,27 @@ lint_skel *args:
 # run the odin-skel tool's tests
 test_skel *args: mktarget_dirs
 	odin test tools/skel -debug -linker:{{linker}} -out:{{ target_path("debug", skel_test_name) }} {{args}}
+
+# `mylib/` is the template `odin-skel new --lib` scaffolds from, and it is a live package here rather
+# than inert text - see tools/DESIGN.md, Decision 3's amendment. `odin check .` covers only the root
+# package, so it needs its own pass or it drifts unchecked exactly like tools/skel would.
+#
+# The example is checked with `-file`, which is how a scaffolded project builds it: that is what proves
+# its `".."` import depth is right, and the depth is the one thing about this layout that is easy to
+# get wrong.
+# ---
+# lint the lib template package and its example
+lint_lib_template *args:
+	odin check mylib -vet -vet-cast -strict-style -vet-tabs -no-entry-point {{args}}
+	odin check mylib/examples/basic.odin -file -vet -vet-cast -strict-style -vet-tabs {{args}}
+
+# Runs the example as well as the tests. `odin check` never links, and the example's whole job is to
+# prove that the import path a consumer will use resolves, links and runs.
+# ---
+# test the lib template package and run its example
+test_lib_template *args: mktarget_dirs
+	odin test mylib -debug -linker:{{linker}} -out:{{ target_path("debug", "test-mylib.exe") }} {{args}}
+	odin run mylib/examples/basic.odin -file -linker:{{linker}} -out:{{ target_path("debug", "example-basic.exe") }} {{args}}
 
 # The version is stamped in at build time; an unstamped build reports "dev". Release builds pass
 # `-define:SKEL_VERSION=x.y.z` (see tools/DESIGN.md).
@@ -610,6 +698,21 @@ _embed mode:
 	EXCLUDED_FILES = ("CHANGELOG.md",)
 	GENERATED = os.path.join("tools", "skel", "templates.odin")
 
+	# Files belonging to only one project kind. Everything else is `.Both`, which is the enum's zero
+	# value and so is left off the generated entry entirely.
+	#   mylib/     the lib template: relocated to the destination root, package clause rewritten
+	#   main.odin  the exe template's entry point; a library has no main
+	# Keep these in step with tools/skel/template.odin's LIB_TEMPLATE_DIR.
+	LIB_TEMPLATE_DIR = "mylib"
+	EXE_ONLY_FILES = ("main.odin",)
+
+	def kind_of(rel):
+		if rel.startswith(LIB_TEMPLATE_DIR + "/"):
+			return "Lib"
+		if rel in EXE_ONLY_FILES:
+			return "Exe"
+		return "Both"
+
 	files = subprocess.run(
 		["git", "ls-files"], capture_output=True, text=True, check=True
 	).stdout.splitlines()
@@ -633,7 +736,13 @@ _embed mode:
 	for rel in files:
 		# #load resolves relative to this generated file, which lives two directories down.
 		load_path = "../../" + rel
-		lines.append('\t{path = "%s", data = #load("%s", string)},' % (rel, load_path))
+		kind = kind_of(rel)
+		if kind == "Both":
+			lines.append('\t{path = "%s", data = #load("%s", string)},' % (rel, load_path))
+		else:
+			lines.append(
+				'\t{path = "%s", data = #load("%s", string), kind = .%s},' % (rel, load_path, kind)
+			)
 	lines.append("}")
 	content = "\n".join(lines) + "\n"
 
@@ -673,6 +782,18 @@ _embed mode:
 				if load != "../../" + path:
 					problems.append("  %s loads %s" % (path, load))
 
+		# Kinds are counted rather than matched per entry, for the same reason the text is not compared
+		# byte for byte: odinfmt wraps long entries across lines, so there is no reliable way to tell
+		# which `kind = .Lib` belongs to which `path =` without parsing Odin. A count still catches the
+		# drift that matters - a template file added to or removed from one of the kind groups.
+		for kind in ("Lib", "Exe"):
+			want = sum(1 for f in files if kind_of(f) == kind)
+			got = len(re.findall(r"kind\s*=\s*\." + kind + r"\b", current))
+			if want != got:
+				problems.append(
+					"  %d files are kind .%s but %d entries say so" % (want, kind, got)
+				)
+
 		if problems:
 			print("\n".join(problems))
 			sys.exit("stale embed list, run `just embed`")
@@ -707,14 +828,19 @@ _snippets mode:
 			text = text.replace(find, repl, 1)
 		return text
 
+	# Marker blocks whose BODY survives into the snippet; only their marker lines go. The snippet is a
+	# starting justfile for a program, so the executable recipes are exactly what it is for. Everything
+	# else marked - skeleton-only, snippet-exclude, lib-only - is dropped body and all, because it either
+	# only maintains this repo, contains literal `$` that would corrupt the snippet, or belongs to a
+	# library rather than to a program.
+	KEEP_BODY = ("exe-only",)
+
 	def strip_marked_blocks(text):
-		# drop every `# >>> name` ... `# <<< name` block (skeleton-only, snippet-exclude, ...): such
-		# recipes either only maintain the skeleton or contain literal `$` that would corrupt the snippet.
 		out, skip = [], False
 		for line in text.splitlines(keepends=True):
 			s = line.strip()
 			if s.startswith("# >>> "):
-				skip = True
+				skip = s[len("# >>> "):].strip() not in KEEP_BODY
 				continue
 			if s.startswith("# <<< "):
 				skip = False

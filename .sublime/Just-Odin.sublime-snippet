@@ -106,9 +106,9 @@ lint *args:
 	odin check . -vet -vet-cast -strict-style -vet-tabs -no-entry-point {{args}}
 
 
-# Every `run_*`, `test*` and `diagnose` recipe depends on this, so it runs before every build - which
-# makes its cost a tax on every iteration, and worth keeping small. odin does not create the output
-# directory (the linker fails with LNK1104), so this cannot just be dropped.
+# Every recipe that produces a binary depends on this, so it runs before every build - which makes its
+# cost a tax on every iteration, and worth keeping small. odin does not create the output directory
+# (the linker fails with LNK1104), so this cannot just be dropped.
 #
 # The directories are created all at once rather than one per line because just starts a new shell
 # per recipe line, and on Windows the shell launch dwarfs the work: hyperfine puts `powershell.exe

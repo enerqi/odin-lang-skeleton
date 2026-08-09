@@ -15,16 +15,22 @@ used for the `.sublime-project` file.
 `linker` is one of LINKERS, or "" to keep the skeleton's per-OS default (radlink on Windows,
 `default` elsewhere). When set, the generated justfile pins that linker for every platform.
 
+`kind` selects the project shape. `.Exe` is the default; `.Lib` scaffolds a source package whose root
+directory is the package itself. `pkg` names that package and is only consulted for `.Lib`; when
+empty it is derived from the project name, which frequently is not a legal package clause on its own.
+
 Not everything is copied verbatim:
 
-  - the justfile, README.md and .gitattributes have their `>>> skeleton-only` blocks stripped
+  - the justfile, README.md and .gitattributes have their marker blocks stripped, per kind
   - README.md is additionally demoted one heading level and given a `# <name>` title of its own
   - `*.sublime-project` is renamed to `<name>.sublime-project`
   - LICENSE is replaced with a fresh Zlib licence
+  - for `.Lib`, the template's `mylib/` files move to the destination root and their package clause
+    is rewritten
 
 Returns a process exit code.
 */
-new :: proc(dest: string, name: string, linker: string = "") -> int {
+new :: proc(dest: string, name: string, linker: string = "", kind := Project_Kind.Exe, pkg: string = "") -> int {
 	if os.is_file(dest) {
 		fmt.eprintfln("odin-skel: refusing - %q is a file", dest)
 		return 1
@@ -40,6 +46,26 @@ new :: proc(dest: string, name: string, linker: string = "") -> int {
 		return 1
 	}
 
+	// Resolved for every kind so that an illegal name is reported before any file is written, but only
+	// used by `.Lib` - an executable's directory name never has to be an identifier.
+	package_name := ""
+	if kind == .Lib {
+		source := pkg if pkg != "" else project
+		reason: string
+		name_ok: bool
+		package_name, reason, name_ok = odin_package_name(source)
+		if !name_ok {
+			fmt.eprintfln("odin-skel: %q cannot be an Odin package name - %s", source, reason)
+			fmt.eprintln("pass one explicitly, e.g. --pkg=my_lib")
+			return 1
+		}
+	}
+	// Registered at function scope, not inside the branch above: a `defer` fires at the end of the
+	// block it appears in, so freeing it there would leave `package_name` dangling for the whole loop.
+	defer if package_name != "" {
+		delete(package_name)
+	}
+
 	year, _, _ := time.date(time.now())
 
 	sublime_name := strings.concatenate({project, ".sublime-project"})
@@ -47,6 +73,10 @@ new :: proc(dest: string, name: string, linker: string = "") -> int {
 
 	written := 0
 	for tmpl in TEMPLATES {
+		if !template_wanted(tmpl.kind, kind) {
+			continue
+		}
+
 		out_rel, content: string
 		owned_rel, owned_content: bool
 
@@ -54,9 +84,10 @@ new :: proc(dest: string, name: string, linker: string = "") -> int {
 		// All three carry `skeleton-only` marker blocks: the justfile's recipes that only maintain
 		// this repo, the README sections documenting those recipes plus how to install and release
 		// odin-skel itself, and .gitattributes' linguist rules for files that either do not exist in
-		// a scaffolded project or are not generated once they land there.
+		// a scaffolded project or are not generated once they land there. The justfile and README
+		// additionally carry `exe-only` / `lib-only` blocks, which is why the drop set is per kind.
 		case tmpl.path == "justfile", tmpl.path == "README.md", tmpl.path == ".gitattributes":
-			out_rel, content = tmpl.path, strip_skeleton_only(tmpl.data)
+			out_rel, content = tmpl.path, strip_marked_blocks(tmpl.data, drop_names(kind))
 			owned_content = true
 
 			// `--linker` only touches the justfile, and only after the strip: the assignment it
@@ -88,6 +119,38 @@ new :: proc(dest: string, name: string, linker: string = "") -> int {
 		case strings.has_suffix(tmpl.path, ".sublime-project"):
 			out_rel, content = replace_base(tmpl.path, sublime_name), tmpl.data
 			owned_rel = true
+
+		// The lib template lives under `mylib/` here only because this repository's root is already
+		// `package main`. A scaffolded library's root IS the package, so the prefix comes off and the
+		// package clause is rewritten - see tools/DESIGN.md, Decision 4a.
+		case tmpl.kind == .Lib:
+			rel, rel_ok := lib_out_path(tmpl.path, package_name)
+			if !rel_ok {
+				fmt.eprintfln(
+					"odin-skel: %q is marked as a lib template but is not under %q - this binary and its template have drifted",
+					tmpl.path,
+					LIB_TEMPLATE_DIR,
+				)
+				return 1
+			}
+			out_rel, owned_rel = rel, true
+			content = tmpl.data
+
+			// Only the files at the template's root declare the library package; everything below it
+			// is an example, which is `package main` and must keep that clause.
+			if path_dir(tmpl.path) == LIB_TEMPLATE_DIR && strings.has_suffix(tmpl.path, ".odin") {
+				renamed, clause_ok := rewrite_package_clause(content, package_name)
+				if !clause_ok {
+					delete(out_rel)
+					fmt.eprintfln(
+						"odin-skel: %q has no `package %s` line - this binary and its template have drifted",
+						tmpl.path,
+						LIB_TEMPLATE_PACKAGE,
+					)
+					return 1
+				}
+				content, owned_content = renamed, true
+			}
 		case:
 			out_rel, content = tmpl.path, tmpl.data
 		}
@@ -115,7 +178,17 @@ new :: proc(dest: string, name: string, linker: string = "") -> int {
 		written += 1
 	}
 
-	fmt.printfln("created %d files in %s (project %q, Zlib license)", written, dest, project)
+	if kind == .Lib {
+		fmt.printfln(
+			"created %d files in %s (library %q, package %q, Zlib license)",
+			written,
+			dest,
+			project,
+			package_name,
+		)
+	} else {
+		fmt.printfln("created %d files in %s (project %q, Zlib license)", written, dest, project)
+	}
 	return 0
 }
 

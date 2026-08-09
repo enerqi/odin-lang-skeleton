@@ -2,6 +2,20 @@ package skel
 
 import "core:strings"
 
+// What shape of project `new` is scaffolding. `--lib` selects `.Lib`; everything else is `.Exe`.
+Project_Kind :: enum {
+	Exe,
+	Lib,
+}
+
+// Which project kinds a template file belongs to. `.Both` is the zero value so the generated
+// templates.odin only has to name the exceptions.
+Template_Kind :: enum {
+	Both,
+	Exe,
+	Lib,
+}
+
 // One embedded template file. `path` is repo-relative with forward slashes, as `git ls-files`
 // reports it; `data` is the file's contents baked in at compile time.
 //
@@ -9,6 +23,53 @@ import "core:strings"
 Template :: struct {
 	path: string,
 	data: string,
+	kind: Template_Kind,
+}
+
+@(require_results)
+template_wanted :: proc(tmpl: Template_Kind, project: Project_Kind) -> bool {
+	switch tmpl {
+	case .Both:
+		return true
+	case .Exe:
+		return project == .Exe
+	case .Lib:
+		return project == .Lib
+	}
+	return false
+}
+
+/*
+The directory holding the lib template inside this repository, and the placeholder package name its
+files declare.
+
+They are the same word on purpose: `lib_out_path` strips the directory prefix and then renames any
+file whose base name starts with it, so `mylib/mylib_test.odin` lands as `<pkg>_test.odin` without a
+second rule. See tools/DESIGN.md, "Keeping the lib template live".
+*/
+LIB_TEMPLATE_DIR :: "mylib"
+LIB_TEMPLATE_PACKAGE :: "mylib"
+
+/*
+Marker blocks stripped when scaffolding, by project kind. `skeleton-only` goes in both directions; the
+kind markers keep one shape's recipes and prose out of the other's files.
+
+Backed by `@(rodata)` arrays rather than written as `::` slice constants, because a constant slice
+returned from `drop_names` does not survive the return: the compiler materialises the literal into the
+callee's frame, and by the time `strip_marked_blocks` iterates it, the memory is gone. That failed
+silently and in the worst possible way - every name compared unequal, so nothing was ever dropped and
+scaffolding produced a justfile with the skeleton's own recipes still in it, no error anywhere. A
+static array has a lifetime that outlives the call.
+*/
+@(rodata)
+drop_for_exe := [?]string{"skeleton-only", "lib-only"}
+
+@(rodata)
+drop_for_lib := [?]string{"skeleton-only", "exe-only"}
+
+@(require_results)
+drop_names :: proc(kind: Project_Kind) -> []string {
+	return kind == .Lib ? drop_for_lib[:] : drop_for_exe[:]
 }
 
 /*
@@ -33,21 +94,26 @@ marker_text :: proc(trimmed: string) -> string {
 }
 
 /*
-Strip `>>> skeleton-only` ... `<<< skeleton-only` blocks.
+Strip the marker blocks named in `drop`, body and markers together.
 
-Content inside those markers maintains the skeleton itself - the scaffolding, snippet and embed
-recipes, and the notes on installing and releasing this tool - and is meaningless once the file has
-been copied into a real project.
+`skeleton-only` content maintains the skeleton itself - the scaffolding, snippet and embed recipes,
+and the notes on installing and releasing this tool - and is meaningless once the file has been copied
+into a real project. `exe-only` and `lib-only` carry the parts of the justfile and README that belong
+to one project shape and would be wrong in the other: the five-tier build ladder means nothing to a
+library, and `just example` means nothing to a program.
 
-Other marker blocks - `snippet-exclude` today - keep their body, but their marker lines are dropped
+Every other marker block - `snippet-exclude` today - keeps its body, but its marker lines are dropped
 because they only mean something in the skeleton repo.
 
 Applied to the justfile, README.md and .gitattributes. The README needed it because it is copied
 verbatim and was documenting recipes (`just new`, `just snippets`) that the stripped justfile no
 longer contains; .gitattributes because its `linguist-generated` rules name `tools/`, which a
 scaffolded project never receives.
+
+Blocks do not nest. A `>>> a` inside a dropped `>>> b` would be swallowed as ordinary text, and the
+first `<<<` seen while dropping ends the drop whatever it names, so nesting would silently mis-cut.
 */
-strip_skeleton_only :: proc(text: string, allocator := context.allocator) -> string {
+strip_marked_blocks :: proc(text: string, drop: []string, allocator := context.allocator) -> string {
 	b := strings.builder_make(allocator)
 	// The result is a fresh allocation below, so the builder's scratch buffer must not outlive us.
 	defer strings.builder_destroy(&b)
@@ -64,12 +130,15 @@ strip_skeleton_only :: proc(text: string, allocator := context.allocator) -> str
 
 		marker := marker_text(strings.trim_space(line))
 		switch {
-		case marker == ">>> skeleton-only":
-			skip = true
-		case marker == "<<< skeleton-only":
-			skip = false
-		case strings.has_prefix(marker, ">>> "), strings.has_prefix(marker, "<<< "):
-		// A different marker block: drop the marker line, keep the body.
+		case strings.has_prefix(marker, ">>> "):
+			// A block not being dropped still loses its marker line: it only means something here.
+			if name_in(drop, marker[4:]) {
+				skip = true
+			}
+		case strings.has_prefix(marker, "<<< "):
+			if name_in(drop, marker[4:]) {
+				skip = false
+			}
 		case !skip:
 			strings.write_string(&b, line)
 		}
@@ -79,6 +148,197 @@ strip_skeleton_only :: proc(text: string, allocator := context.allocator) -> str
 	// `.rstrip("\n") + "\n"`.
 	out := strings.trim_right(strings.to_string(b), "\n")
 	return strings.concatenate({out, "\n"}, allocator)
+}
+
+@(require_results)
+name_in :: proc(names: []string, name: string) -> bool {
+	for candidate in names {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
+}
+
+/*
+Where a lib template file lands in a scaffolded project.
+
+The template lives under `mylib/` here because this repository's root is already `package main`, but a
+scaffolded library's root IS the package - that is the layout the surrounding Odin ecosystem uses (see
+tools/DESIGN.md, Decision 4a). So the directory prefix is stripped, and a base name starting with the
+placeholder package is renamed to the real one:
+
+	mylib/mylib.odin           -> <pkg>.odin
+	mylib/mylib_test.odin      -> <pkg>_test.odin
+	mylib/examples/basic.odin  -> examples/basic.odin
+
+Returns `ok = false` for a path that is not under the template directory, which would mean the embed
+list and this rule have drifted apart.
+*/
+@(require_results)
+lib_out_path :: proc(path: string, pkg: string, allocator := context.allocator) -> (result: string, ok: bool) {
+	PREFIX :: LIB_TEMPLATE_DIR + "/"
+	if !strings.has_prefix(path, PREFIX) {
+		return "", false
+	}
+	rel := path[len(PREFIX):]
+
+	base := path_base(rel)
+	if !strings.has_prefix(base, LIB_TEMPLATE_PACKAGE) {
+		return strings.clone(rel, allocator), true
+	}
+	renamed := strings.concatenate({pkg, base[len(LIB_TEMPLATE_PACKAGE):]}, allocator)
+	defer delete(renamed, allocator)
+	if dir := path_dir(rel); dir != "" {
+		return strings.concatenate({dir, "/", renamed}, allocator), true
+	}
+	return strings.clone(renamed, allocator), true
+}
+
+/*
+Rewrite the lib template's `package mylib` clause to the project's own package name.
+
+Matched on a whole line so that prose mentioning the word is left alone - the template's own doc
+comment talks about package names at length, and `odin-mylib` appears in it as an example of a
+directory name.
+
+Returns `ok = false` when no such line exists. Callers apply this only to the files that must declare
+the library package (those at the template's root); the examples are `package main` and are never
+passed through it, so a missing clause means the template changed shape and is worth failing on -
+the same contract `set_linker_default` has.
+*/
+@(require_results)
+rewrite_package_clause :: proc(
+	text: string,
+	pkg: string,
+	allocator := context.allocator,
+) -> (
+	result: string,
+	ok: bool,
+) {
+	CLAUSE :: "package " + LIB_TEMPLATE_PACKAGE
+
+	rest := text
+	offset := 0
+	for len(rest) > 0 {
+		line: string
+		line_len := 0
+		if i := strings.index_byte(rest, '\n'); i >= 0 {
+			line, line_len = rest[:i], i + 1
+		} else {
+			line, line_len = rest, len(rest)
+		}
+
+		if strings.trim_space(line) == CLAUSE {
+			tail := text[offset + len(line):]
+			return strings.concatenate({text[:offset], "package ", pkg, tail}, allocator), true
+		}
+
+		offset += line_len
+		rest = rest[line_len:]
+	}
+	return "", false
+}
+
+// Words Odin reserves. A package clause using one is a compile error, and the error points at the
+// generated file rather than at the name that was passed in, so it is caught here instead.
+ODIN_KEYWORDS :: []string {
+	"asm",
+	"auto_cast",
+	"bit_field",
+	"bit_set",
+	"break",
+	"case",
+	"cast",
+	"context",
+	"continue",
+	"defer",
+	"distinct",
+	"do",
+	"dynamic",
+	"else",
+	"enum",
+	"fallthrough",
+	"for",
+	"foreign",
+	"if",
+	"import",
+	"in",
+	"map",
+	"matrix",
+	"not_in",
+	"or_break",
+	"or_continue",
+	"or_else",
+	"or_return",
+	"package",
+	"proc",
+	"return",
+	"struct",
+	"switch",
+	"transmute",
+	"typeid",
+	"union",
+	"using",
+	"when",
+	"where",
+}
+
+/*
+Derive a legal Odin package name from a project name.
+
+A project name only ever had to be a directory name before, and `odin-mylib` is a perfectly good one.
+It is not a legal package clause: a hyphen is not an identifier character. So the separators people
+actually type - `-`, `.` and spaces - become underscores, and everything else is rejected rather than
+mangled, because silently dropping characters produces a package name the author did not choose and
+will not recognise.
+
+Returns `ok = false` with a reason for anything that cannot be repaired this way.
+*/
+@(require_results)
+odin_package_name :: proc(
+	project: string,
+	allocator := context.allocator,
+) -> (
+	name: string,
+	reason: string,
+	ok: bool,
+) {
+	if project == "" {
+		return "", "it is empty", false
+	}
+
+	b := strings.builder_make(allocator)
+	defer strings.builder_destroy(&b)
+
+	for i in 0 ..< len(project) {
+		c := project[i]
+		switch {
+		case c == '-', c == '.', c == ' ', c == '_':
+			strings.write_byte(&b, '_')
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+			strings.write_byte(&b, c)
+		case:
+			return "", "it contains characters that are not letters, digits, `-`, `.`, `_` or spaces", false
+		}
+	}
+
+	candidate := strings.to_string(b)
+	// A leading digit is the one case a substitution cannot fix: `2d_math` is not an identifier and
+	// `_2d_math` would be a name nobody asked for.
+	if candidate[0] >= '0' && candidate[0] <= '9' {
+		return "", "it starts with a digit", false
+	}
+	if name_in(ODIN_KEYWORDS, candidate) {
+		return "", "it is an Odin keyword", false
+	}
+	// `_` alone is Odin's blank identifier, and a name made entirely of separators leaves nothing of
+	// the project in it anyway.
+	if strings.trim_left(candidate, "_") == "" {
+		return "", "it has no letters or digits in it", false
+	}
+
+	return strings.clone(candidate, allocator), "", true
 }
 
 /*

@@ -31,6 +31,12 @@ Commands:
   new <dest> [name]   Scaffold a project into <dest>. The directory must not exist, or must be
                       empty apart from .git. [name] defaults to the directory's own name and is
                       used for the .sublime-project file.
+      --lib           Scaffold a library - an Odin source package that other projects copy into
+                      their tree and import - instead of an executable. The destination directory
+                      IS the package, and examples live in examples/ as single-file programs.
+      --pkg=<name>    The library's package name. Defaults to the project name with -, . and
+                      spaces turned into underscores, since a directory name like "odin-mylib" is
+                      not a legal package clause. Ignored without --lib.
       --linker=<v>    Pin the generated justfile's linker for every platform, where <v> is one of
                       default, lld, radlink or mold. Omit it to keep the skeleton's per-OS default:
                       radlink on Windows (it ships with the Odin toolchain), "default" elsewhere.
@@ -47,10 +53,12 @@ Examples:
   odin-skel new . my-game             scaffold into the current directory (must be empty; a name
                                       is needed here because "." is not one)
   odin-skel new ../srv --linker=mold  scaffold with mold pinned as the project's linker
+  odin-skel new ../odin-toml --lib    scaffold a library; package name defaults to "odin_toml"
+  odin-skel new ../odin-toml --lib --pkg=toml   ... or name the package yourself
   odin-skel doctor                    check the toolchain before starting
 
 After scaffolding, the project is driven by just (https://just.systems):
-  just run          build and run a debug build
+  just run          build and run a debug build (executables only; a library has just check)
   just test         run the tests
   just lint         type check, vet and style check
   just --list       every available recipe
@@ -85,43 +93,81 @@ run :: proc() -> int {
 		fmt.print(USAGE)
 		return 0
 	case "new":
-		// `--linker` may appear anywhere after `new`; what is left over is positional. Both
-		// spellings are accepted because both are what people type.
+		// Flags may appear anywhere after `new`; what is left over is positional. Both the
+		// `--flag=value` and `--flag value` spellings are accepted because both are what people type.
 		positional: [dynamic]string
 		defer delete(positional)
 		linker := ""
+		pkg := ""
+		// Tracked separately from `pkg != ""`, so that `--pkg=` with an empty value is an error rather
+		// than a silent fall back to the derived name - somebody who typed the flag meant to choose.
+		pkg_given := false
+		kind := Project_Kind.Exe
 		for i := 1; i < len(args); i += 1 {
 			arg := args[i]
-			value := ""
+
+			if arg == "--lib" {
+				kind = .Lib
+				continue
+			}
+
+			// Which flag is being read, so the shared `--flag value` handling below only has to know
+			// that a value is wanted, not which one.
+			name, value: string
 			switch {
 			case strings.has_prefix(arg, "--linker="):
-				value = arg[len("--linker="):]
-			case arg == "--linker":
+				name, value = "--linker", arg[len("--linker="):]
+			case strings.has_prefix(arg, "--pkg="):
+				name, value = "--pkg", arg[len("--pkg="):]
+			case arg == "--linker", arg == "--pkg":
 				if i + 1 >= len(args) {
-					fmt.eprintln("odin-skel: --linker needs a value, e.g. --linker=mold")
+					fmt.eprintfln(
+						"odin-skel: %s needs a value, e.g. %s=%s",
+						arg,
+						arg,
+						arg == "--pkg" ? "my_lib" : "mold",
+					)
 					return 2
 				}
 				i += 1
-				value = args[i]
+				name, value = arg, args[i]
 			case:
 				append(&positional, arg)
 				continue
 			}
-			if !valid_linker(value) {
-				fmt.eprintfln("odin-skel: unknown linker %q", value)
-				fmt.eprintfln("choices: %s", strings.join(LINKERS, ", ", context.temp_allocator))
-				return 2
+
+			switch name {
+			case "--linker":
+				if !valid_linker(value) {
+					fmt.eprintfln("odin-skel: unknown linker %q", value)
+					fmt.eprintfln("choices: %s", strings.join(LINKERS, ", ", context.temp_allocator))
+					return 2
+				}
+				linker = value
+			case "--pkg":
+				if value == "" {
+					fmt.eprintln("odin-skel: --pkg needs a package name, e.g. --pkg=my_lib")
+					return 2
+				}
+				pkg, pkg_given = value, true
 			}
-			linker = value
 		}
 
 		if len(positional) == 0 {
 			fmt.eprintln("odin-skel: `new` needs a destination directory")
-			fmt.eprintln("usage: odin-skel new <dest> [name] [--linker=<default|lld|radlink|mold>]")
+			fmt.eprintln(
+				"usage: odin-skel new <dest> [name] [--lib] [--pkg=<name>] [--linker=<default|lld|radlink|mold>]",
+			)
 			return 2
 		}
+		// Accepted rather than rejected when `--lib` is absent: it is only ever a hint about a
+		// library, and a stray one should not fail a scaffold that otherwise succeeds. Say so, since
+		// silently ignoring a flag somebody typed is how a wrong package name goes unnoticed.
+		if pkg_given && kind != .Lib {
+			fmt.eprintln("odin-skel: --pkg only applies to --lib; ignoring it")
+		}
 		name := len(positional) >= 2 ? positional[1] : ""
-		return new(positional[0], name, linker)
+		return new(positional[0], name, linker, kind, pkg)
 	case:
 		fmt.eprintfln("odin-skel: unknown command %q", args[0])
 		fmt.eprint(USAGE)

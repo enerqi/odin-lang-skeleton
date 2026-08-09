@@ -10,8 +10,8 @@ Status: **accepted.** Phases 1–3 are implemented — `version`, `doctor`, `new
 and CI plus tagged releases for four targets. Phase 4 (update check, `--from-git`, self-update) is
 not.
 
-Decision 4 (`--lib`) is **designed, not implemented** — the layout survey and the toolchain checks it
-rests on are recorded below, but no code exists yet.
+Decision 4 (`--lib`) is **implemented**: `mylib/` is a live template in this repository, `odin-skel new
+--lib` scaffolds from it, and CI scaffolds and builds a library on all three platforms.
 
 
 ## Decision 1 — templates are embedded in the binary
@@ -209,9 +209,8 @@ vendor into their own tree and import. It is the counterpart to cargo's `--lib`,
 hand-written C header, per-platform artifact names, and a `context` to establish at every boundary. It
 deserves its own kind if it is ever wanted; it is not what `--lib` means here.
 
-Status: designed, not implemented. The two load-bearing sub-decisions are settled — **4a** (the
-repository root is the package) and **4d** (tests live in the package). The rest of Decision 4 follows
-from those two and can be built against them.
+Status: implemented. The two load-bearing sub-decisions are **4a** (the repository root is the package)
+and **4d** (tests live in the package); the rest follows from them.
 
 ### What the ecosystem actually does
 
@@ -416,9 +415,17 @@ whole `linker` block, and `test`/`test1`, which work against the root package as
 `-microarch:native` can stay in the test and example recipes: nothing here ships as a binary, so it
 never reaches a consumer's machine.
 
-**To settle:** `release` and `changelog_section` sit inside `# >>> skeleton-only`, so scaffolded
-projects do not get them. A library is tagged and pinned far more than an application is — consumers
-depend on tags. They should probably move out of the marker block, for both kinds.
+**Settled: `release` and `changelog_section` stay skeleton-only.** The case for shipping them was that a
+library is tagged and pinned far more than an application is, because its consumers depend on tags. The
+case against is mechanical and wins: both recipes need files a scaffolded project does not receive.
+`CHANGELOG.md` is in the embed generator's `EXCLUDED_FILES` and `.github/` is excluded wholesale, so
+`just release 1.0.0` would fail on `open("CHANGELOG.md")` with a Python traceback, and
+`changelog_section` exists to feed a release workflow that is not there either. A recipe that only
+errors is worse than an absent one, and Keep a Changelog is a workflow choice rather than a build
+concern — not something a scaffold should presume.
+
+The tagging point survives as a line in the generated library README instead, which costs nothing and
+imposes nothing.
 
 ### Keeping the lib template live
 
@@ -442,9 +449,44 @@ The relative import strings survive the move untouched, which is what makes this
 `examples/basic.odin` resolves the same `".."` to the root. Same string, both positions. Only file paths
 are rewritten, never file contents beyond the package clause.
 
-The skeleton's root `main.odin` can import `mylib/` directly, which both keeps the template compiled and
-gives the exe template a worked example of consuming a local package — something the `xyz` /
-`XYZ_HOME` placeholder variables currently only gesture at.
+What keeps it compiled is a pair of skeleton-only recipes, `lint_lib_template` and `test_lib_template`,
+wired into CI beside `lint_skel` and `test_skel`. The root `main.odin` deliberately does **not** import
+`mylib/`: `main.odin` is itself a template, and an import of a directory that no exe project receives
+would break every project scaffolded without `--lib`.
+
+`test_lib_template` runs the example as well as the tests, because `odin check` never links and the
+example's entire job is to prove that the import path a consumer will use resolves at runtime.
+
+### Two things the implementation had to settle that the design did not anticipate
+
+**A constant slice does not survive being returned.** `DROP_FOR_EXE :: []string{...}` passed straight to
+a procedure works; the same constant returned from `drop_names` does not — the literal is materialised
+into the callee's frame and is gone by the time the caller iterates it. It failed in the worst possible
+way: every name compared unequal, so nothing was dropped, and scaffolding produced a justfile with the
+skeleton's own recipes still in it and no error anywhere. Both drop sets are now `@(rodata)` arrays,
+which have a lifetime that outlives the call.
+
+**A marker block cannot live inside a recipe that generates a file.** `sublime-build-init` is a
+`[script]` recipe that writes a `build_systems` entry, and its `shell_cmd` has to name a recipe that
+exists. Marking the two branches would work in a scaffolded project but not here: this repository's own
+justfile is the unstripped one, so *both* would execute and the stub would carry two `shell_cmd` keys.
+It therefore seeds `just test`, the one recipe both kinds have, and lists the rest as commented
+variants — comments are harmless in every context, stripped or not.
+
+**The Sublime build systems are global, so they are never stripped.** `OdinJustTarget.sublime-build`
+names recipes in its `project - just ...` variants, half of which exist in only one kind, which looks
+like a case for kind markers. It is not: `just install-sublime` copies these files into Sublime's
+global `Packages/User`, where they match on `source.odin` and drive *every* Odin project on the
+machine. A copy specialised to the project it was scaffolded from would take the other kind's build
+variants away everywhere — scaffold a library, install, and your executable projects lose `just run`.
+
+So the file lists both kinds and is copied verbatim. A variant naming a recipe the current project does
+not define simply fails if you pick it; a variant missing from the global copy is gone for good. The
+same reasoning applies to `Odin.sublime-build`, which is already kind-agnostic because it invokes
+`odin` directly rather than going through `just`.
+
+A consequence worth stating: `marker_text` deliberately has no `//` spelling, so kind markers added to
+a `.sublime-build` file would be inert rather than wrong-looking. A test asserts none are present.
 
 ### Tool changes
 
@@ -554,14 +596,16 @@ Not decided; deliberately deferred.
   either README.md needs the same marker treatment the justfile gets, or that section needs to move
   somewhere that is not copied
 
-* `mod.pkg`. Three of the seven surveyed libraries (odin-http, toml_parser, odin-cli) carry one, which
-  suggests a community package manifest is settling into place. Not designed for here — but worth
-  re-checking before `--lib` ships, because if it is becoming conventional then a generated library
-  should carry one
+* ~~`mod.pkg`~~ — **decided: not generated.** Three of the seven surveyed libraries carry one, which
+  looked at first like a convention settling into place. It is not. Odin has no package manager and no
+  official one is planned, and the file itself declares nothing a consumer needs — odin-http's is
+  `version`, `description`, `url`, `readme`, `license`, `keywords` and nothing else. No dependencies, no
+  registry, no tool named anywhere in it. It is optional metadata for a third-party index, so a
+  scaffolded library that carried one would be advertising itself to a service its author never chose.
+  Anyone who wants one can add six lines
 
-* whether `release` and `changelog_section` should leave the `# >>> skeleton-only` block. A library is
-  tagged and pinned by its consumers, so a scaffolded library wants a release path far more than a
-  scaffolded application does. Applies to both kinds if it is done at all
+* ~~`release` and `changelog_section` leaving the `# >>> skeleton-only` block~~ — **decided: they stay.**
+  Both need files a scaffolded project never receives, so they would only ever error. See Decision 4f
 
 * a native-artifact kind (`-build-mode:shared|static`) for C consumers, deliberately excluded from
   Decision 4. It needs exported entry points, a `context` established at every boundary, a hand-written

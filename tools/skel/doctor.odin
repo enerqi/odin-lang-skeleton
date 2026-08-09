@@ -69,7 +69,10 @@ CHECKS :: []Tool_Check {
 		// `uv run -p 3.14 python` (see the justfile's `set script-interpreter`) rather than a bare
 		// `python`, so a version-pinned interpreter downloads itself instead of depending on whatever
 		// `python` happens to resolve to on the machine (unpinned on scoop, distro-versioned on Linux).
-		why        = "lets `install-sublime`, `sublime-build-init` and `ols-config` run without a system python",
+		// Deliberately not a recipe list: this one binary scaffolds both project kinds, and the
+		// `[script]` recipes differ between them - `examples` exists only in a library, the editor-setup
+		// ones in both.
+		why        = "runs the justfile's `[script]` recipes (editor setup everywhere, `examples` in a library) without a system python",
 		install    = "https://docs.astral.sh/uv/getting-started/installation/",
 	},
 }

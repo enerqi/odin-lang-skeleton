@@ -59,5 +59,6 @@
 # do not hand-edit" signal on top, and only where it is honest.
 tools/skel/templates.odin linguist-generated=true
 .sublime/Just-Odin.sublime-snippet linguist-generated=true
+.sublime/Just-Odin-lib.sublime-snippet linguist-generated=true
 .sublime/Odin-skeleton.sublime-snippet linguist-generated=true
 # <<< skeleton-only

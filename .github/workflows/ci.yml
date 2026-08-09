@@ -73,6 +73,14 @@ jobs:
       - name: test odin-skel
         run: just test_skel
 
+      # The lib template is a second template, and Decision 3's amendment turns on it being live code
+      # rather than text: these two steps are what make that true on every commit.
+      - name: lint lib template
+        run: just lint_lib_template
+
+      - name: test lib template
+        run: just test_lib_template
+
       - name: build odin-skel
         run: just build_skel
 
@@ -111,6 +119,53 @@ jobs:
           grep -q "linguist-vendored=true" .gitattributes
           # No --linker was passed, so the per-OS default must come through untouched.
           grep -q 'if os() == "windows"' justfile
+
+      # The library kind needs its own end-to-end run for the same reason the executable one does: the
+      # unit tests prove the transformations in isolation, but only a real scaffold proves the result
+      # is a working Odin package on this platform. The example is the part worth building - its `".."`
+      # import depth is the thing about this layout that is easy to get wrong, and `-file` mode is where
+      # it differs from every other Odin library.
+      - name: scaffold and build a generated library
+        shell: bash
+        run: |
+          set -euo pipefail
+          just new "$RUNNER_TEMP/generated-lib" odin-cilib --lib
+          cd "$RUNNER_TEMP/generated-lib"
+          # The directory is the package: the placeholder name must be gone, and the package clause
+          # must carry the derived identifier rather than the hyphenated project name.
+          test -f odin_cilib.odin
+          test -f odin_cilib_test.odin
+          test -f examples/basic.odin
+          test ! -e mylib
+          test ! -e main.odin
+          grep -q "^package odin_cilib$" odin_cilib.odin
+          just lint
+          just check
+          just test
+          just example basic
+          just examples
+          # The build ladder has nothing to build here, so its recipes must not have come through.
+          # Anchored to the start of a line: `test_main_name` contains `main_name`, and the shared
+          # comments mention the build recipes by name.
+          for leaked in '^run_debug ' '^rerun_debug ' '^diagnose ' '^main_name :='; do
+            if grep -q "$leaked" justfile; then
+              echo "executable-only content '$leaked' leaked into the library justfile" >&2
+              exit 1
+            fi
+          done
+          # ... and the library's own recipes must have.
+          for wanted in '^check \*args' '^example name' '^doc \*args'; do
+            if ! grep -q "$wanted" justfile; then
+              echo "library recipe '$wanted' missing from the generated justfile" >&2
+              exit 1
+            fi
+          done
+          # The Sublime build system is deliberately NOT stripped: `just install-sublime` puts it in
+          # Sublime's global Packages/User, where it serves every Odin project on the machine, so it
+          # has to keep both kinds' variants. Assert that rather than let a future strip look tidy.
+          build_system=.sublime/OdinJustTarget.sublime-build
+          grep -q "project - just check" "$build_system"
+          grep -q "project - just run (debug)" "$build_system"
 
       # The `--linker` path needs its own end-to-end run: the unit tests prove the justfile line is
       # rewritten, but only an actual build proves the value survives into `odin` and links.

@@ -9,6 +9,57 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-09
+
+### Added
+
+- **`odin-skel new --lib` scaffolds a library instead of an executable** — an Odin source package that
+  other projects clone or copy into their tree and import. The destination directory *is* the package,
+  which is what six of the seven surveyed community libraries do (odin-http, odin-ldtk, toml_parser,
+  back, odin-cli, odin-rure; odin-mimalloc is the exception). A `-collection:` flag is the consumer's
+  choice about their own vendor directory, not something a library repository declares.
+
+  `--pkg=NAME` names the package; without it the project name is turned into a legal Odin identifier
+  (`odin-toml` → `odin_toml`), since a directory name frequently is not one. A name that cannot be
+  repaired that way is rejected with a reason rather than mangled: a leading digit, an Odin keyword,
+  non-ASCII, `main` (the examples are `package main`, and two packages of one name in a build is an
+  error), a leading underscore, or a trailing target name.
+
+  The last two are subtle, and both follow from the package file being named after the package. Odin
+  refuses to compile a source file whose name begins with `_`, and it reads a trailing `_js` / `_linux`
+  / `_amd64` in a *file name* as a build tag — so `--pkg=odin_js` would write `odin_js.odin` and the
+  library's contents would be invisible on every target but one. Both used to scaffold cleanly and fail
+  on the first `just check`.
+
+  A library project gets `just check`, `just example NAME`, `just examples` and `just doc` in place of
+  the `run_*` / `rerun_*` build ladder, `sanitize` and `diagnose`, none of which have anything to build.
+  Examples are single-file `main` packages under `examples/`, built with `-file`; note that in `-file`
+  mode a relative import resolves against the file's own directory, so an example imports `".."` and
+  not the `"../.."` that a deeper `examples/<name>/main.odin` layout would need.
+
+- The justfile and README now carry `exe-only` / `lib-only` marker blocks alongside the existing
+  `skeleton-only` ones, so one template serves both project kinds rather than two copies drifting
+  apart. `just embed` records which kind each template file belongs to, and `just embed-check` verifies
+  the counts.
+
+- `OdinJustTarget.sublime-build` gained `check` / `example basic` / `examples` / `doc` variants beside
+  the existing `run_*` ones. It is deliberately *not* split per kind: `just install-sublime` copies it
+  into Sublime's global `Packages/User`, where it matches on `source.odin` and serves every Odin
+  project on the machine, so it has to carry both kinds' recipes.
+
+- A third generated snippet, `.sublime/Just-Odin-lib.sublime-snippet` (tab trigger `odinlib`), fills in
+  a library justfile. Unlike the build systems, a justfile snippet *is* one project kind's justfile, so
+  it cannot be shared — `Just-Odin` (trigger `odin`) stays the program one.
+
+  All three snippets now also carry a `<description>`, which is what Sublime shows beside the trigger in
+  the completion popup and what Tools → Snippets… lists them under. A `tabTrigger` alone only helps
+  somebody who already knows to type it.
+
+- `just lint_lib_template` / `just test_lib_template`, wired into CI. The library template is a real
+  package in this repository (`mylib/`) rather than inert text, so it is linted, tested and its example
+  actually run on every commit — the same property that keeps the executable template honest. CI also
+  scaffolds a library end to end on all three platforms and builds it.
+
 ## [0.5.0] - 2026-08-09
 
 ### Changed
@@ -486,7 +537,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.5.0...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.6.0...HEAD
+[0.6.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.6.0
 [0.5.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.5.0
 [0.4.4]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.4
 [0.4.3]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.3

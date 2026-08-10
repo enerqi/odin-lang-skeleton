@@ -2,12 +2,19 @@
 
 A minimal project skeleton for the [Odin programming language](http://odin-lang.org/)
 
+<!-- >>> skeleton-only -->
+> **Reading this on GitHub?** This file is the template that both project kinds are scaffolded from, so it shows
+> **both views at once**: wherever the executable and library shapes differ, you will see the two paragraphs one
+> after the other. A scaffolded project's README keeps only the one that applies to it. Each says which kind it is
+> describing, so a pair that looks contradictory here is two answers to the same question, not one wrong one.
+<!-- <<< skeleton-only -->
+
 <!-- >>> exe-only -->
-The build artifacts are output under the `target` directory (similar to [Rust](https://www.rust-lang.org/) projects
-built using `cargo`).
+**An executable project** outputs its build artifacts under the `target` directory (similar to
+[Rust](https://www.rust-lang.org/) projects built using `cargo`).
 <!-- <<< exe-only -->
 <!-- >>> lib-only -->
-This project is a library — an Odin source package with nothing to build, so nothing is output under `target`. See
+**A library project** is an Odin source package with nothing to build, so nothing is output under `target`. See
 [Library layout](#library-layout).
 <!-- <<< lib-only -->
 
@@ -350,12 +357,13 @@ scaffolded project):
 Notes:
 
 <!-- >>> exe-only -->
-- All `run_*`, `rerun_*`, `test*` and `diagnose` tasks accept optional extra variadic arguments; add `--` before
-  passing arguments to your own program. Edit the `main_name` / `test_main_name` output executable names as needed.
+- **Executable:** all `run_*`, `rerun_*`, `test*` and `diagnose` tasks accept optional extra variadic arguments; add
+  `--` before passing arguments to your own program. Edit the `main_name` / `test_main_name` output executable names
+  as needed.
 <!-- <<< exe-only -->
 <!-- >>> lib-only -->
-- `check`, `test*`, `example` and `doc` accept optional extra variadic arguments; add `--` before passing arguments
-  to an example's own `main`. Edit the `test_main_name` output executable name as needed.
+- **Library:** `check`, `test*`, `example` and `doc` accept optional extra variadic arguments; add `--` before
+  passing arguments to an example's own `main`. Edit the `test_main_name` output executable name as needed.
 <!-- <<< lib-only -->
 - `format` assumes `odinfmt` is on your `PATH`. It can be built from source within the
   [Odin language server](https://github.com/DanielGavin/ols) code (see `odinfmt.bat` / `odinfmt.sh`). OLS is
@@ -377,14 +385,9 @@ Notes:
 
 ## Some recipes need uv
 
-<!-- >>> exe-only -->
-`ols-config`, `install-sublime` and `sublime-build-init` are `[script]` recipes — their bodies are Python, run
-<!-- <<< exe-only -->
-<!-- >>> lib-only -->
-`examples`, `ols-config`, `install-sublime` and `sublime-build-init` are `[script]` recipes — their bodies are Python, run
-<!-- <<< lib-only -->
-through [uv](https://docs.astral.sh/uv/) rather than a bare `python`/`python3` on `PATH`. The justfile pins this in
-one place:
+`ols-config`, `install-sublime`, `sublime-build-init` — and `examples` in a library — are `[script]` recipes: their
+bodies are Python, run through [uv](https://docs.astral.sh/uv/) rather than a bare `python`/`python3` on `PATH`. The
+justfile pins this in one place:
 
 ```
 set script-interpreter := ["uv", "run", "--no-project", "-p", "3.14", "python"]
@@ -397,13 +400,13 @@ python` downloads the interpreter it needs (uv-managed, not the system one) so t
 to treat as a project root.
 
 <!-- >>> exe-only -->
-**uv is optional**, unlike `just`: none of the `run_*`/`test*`/`lint`/`format` tasks touch Python, so a project that
-never runs one of the three editor-setup recipes above never needs it installed.
+**In an executable project uv is optional**, unlike `just`: none of the `run_*`/`test*`/`lint`/`format` tasks touch
+Python, so a project that never runs one of the editor-setup recipes above never needs it installed.
 <!-- <<< exe-only -->
 <!-- >>> lib-only -->
-**uv is needed for `just examples`**, and otherwise optional: `check`/`test*`/`lint`/`format`/`example` and `doc`
-touch no Python, but `examples` — the recipe that stops an API change from quietly invalidating the documentation —
-is one of these `[script]` recipes, so it is not only an editor-setup concern here.
+**In a library uv is needed for `just examples`**, and otherwise optional: `check`/`test*`/`lint`/`format`/`example`
+and `doc` touch no Python, but `examples` — the recipe that stops an API change from quietly invalidating the
+documentation — is one of these `[script]` recipes, so it is not only an editor-setup concern here.
 <!-- <<< lib-only -->
 Install from
 [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) (or via Scoop: `scoop install uv`) if

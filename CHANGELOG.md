@@ -9,6 +9,19 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+### Changed
+
+- README: the skeleton's own README renders *both* project kinds' text at once — nothing strips its markers — so a
+  GitHub visitor read adjacent paragraphs as contradictions ("artifacts are output under `target`" immediately
+  followed by "nothing is output under `target`"). The kind-specific paragraphs now name the kind they describe
+  ("**An executable project** …" / "**A library project** …", "**In an executable project uv is optional**" / "**In
+  a library uv is needed for `just examples`**"), so each pair reads as two answers rather than one wrong one, and a
+  `skeleton-only` note at the top says why both are visible. The marker convention was already documented — 690
+  lines further down, in a maintenance section a consumer never reaches.
+- README: the "Some recipes need uv" opening was split *across* a marker, so the skeleton rendered two near-identical
+  sentence fragments in a row before the sentence continued. The only difference was whether `examples` was in the
+  list, so it is now one kind-neutral sentence and the marker pair is gone.
+
 ## [0.7.1] - 2026-08-10
 
 ### Added

@@ -117,11 +117,12 @@ lint *args:
 # cost a tax on every iteration, and worth keeping small. odin does not create the output directory
 # (the linker fails with LNK1104), so this cannot just be dropped.
 #
-# The directories are created all at once rather than one per line because just starts a new shell
-# per recipe line, and on Windows the shell launch dwarfs the work: hyperfine puts `powershell.exe
-# -NoProfile -Command exit` at ~149ms against ~40ms for the actual directory creation. Note the
-# corollary - scoping this to only the one directory a given recipe needs saves ~5ms of that 40 and
-# is not worth the complexity; the shell launch is the whole cost.
+# The directories are created all at once rather than one per line because just starts a new shell per
+# recipe line, so five lines would pay for five shell launches. That was the whole cost back when
+# Windows recipes ran under PowerShell (hyperfine: ~149ms to launch, against ~40ms for the actual
+# directory creation); under cmd a launch is ~9ms, so batching saves ~36ms rather than ~600ms. Still
+# the right shape, no longer dramatic. The corollary is unchanged either way: scoping this to only the
+# one directory a given recipe needs saves ~5ms of that 40 and is not worth the complexity.
 # ---
 # ensure the build artifacts top level directory exists
 [unix]

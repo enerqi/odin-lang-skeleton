@@ -17,6 +17,7 @@ TEMPLATES :: []Template{
 	{path = ".sublime/odin-lang-skeleton.sublime-project", data = #load("../../.sublime/odin-lang-skeleton.sublime-project", string)},
 	{path = "LICENSE", data = #load("../../LICENSE", string)},
 	{path = "README.md", data = #load("../../README.md", string)},
+	{path = "bench/README.md", data = #load("../../bench/README.md", string), feature = "bench"},
 	{path = "bench/bench.just", data = #load("../../bench/bench.just", string), feature = "bench"},
 	{path = "bench/bench.odin", data = #load("../../bench/bench.odin", string), feature = "bench"},
 	{path = "bench/runner.odin", data = #load("../../bench/runner.odin", string), feature = "bench"},

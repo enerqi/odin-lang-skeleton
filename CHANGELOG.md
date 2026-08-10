@@ -9,6 +9,41 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-10
+
+### Added
+
+- `bench/README.md` — the benchmark harness's documentation now ships with the harness. `odin-skel add
+  bench` writes it alongside the code, so it arrives with the feature and is absent from a project that
+  never adds one.
+- A table of contents at the top of the README, one line per section saying why you would go there. Its
+  entries carry the same `skeleton-only` / `exe-only` / `lib-only` markers as the sections they point
+  at, so a scaffolded project's contents list matches the sections it actually has.
+
+### Changed
+
+- README: the `## Benchmarking` section is now a summary that links to `bench/README.md` — what the
+  harness is, why `core:time.benchmark` is not it, and where the detail lives. Around 130 lines of
+  statistics, `keep`/`opaque` rules, baseline caveats and callgrind notes moved out. It was the largest
+  section in the file and documented a directory most projects never add.
+
+- README: `## Layout` is now `## Library layout`, and no longer opens by asserting "this project is a
+  library". It sits between two `skeleton-only` sections, so in *this* repository's README — an
+  executable project — it read as a non sequitur, and the `--lib` paragraph that should introduce it
+  never pointed at it. That paragraph now links to it and says what the executable layout is instead.
+  The section could not simply be nested under `--lib`: marker blocks do not nest
+  (tools/skel/template.odin), and `Creating a new project` is `skeleton-only`, so anything inside it is
+  stripped from every scaffold including the library one it was written for.
+- README: the opening two lines are now split by project kind. A scaffolded library previously claimed
+  it was "for writing programs" and that "build artifacts are output under the `target` directory",
+  eight lines above the layout section explaining that a library builds nothing.
+- README: the Tasks notes still described Windows recipes as running under PowerShell, and explained
+  the `[unix]` / `[windows]` split in terms of `Remove-Item` and `New-Item`. The default has been
+  `cmd.exe /c` since 0.5.0; the text now gives cmd's actual `rmdir /s /q` and `md` forms and cmd's
+  reason for being there (~9ms to launch against PowerShell's ~143ms, paid once per recipe *line*).
+  The `mktarget_dirs` comment in the justfile argued from the same stale numbers — batching the
+  directory creation saves ~36ms under cmd, not the ~600ms it claimed.
+
 ## [0.7.0] - 2026-08-10
 
 ### Added
@@ -585,7 +620,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.7.0...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.7.1...HEAD
+[0.7.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.1
 [0.7.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.0
 [0.6.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.6.0
 [0.5.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.5.0

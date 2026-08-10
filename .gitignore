@@ -48,7 +48,9 @@ vgcore.*
 *.suo
 *.rdbg
 
-# Machine-specific absolute collection path; regenerate with `just ols-config` after cloning.
+# Machine-specific absolute collection paths; regenerate with `just ols-config` after cloning. If
+# every collection you configure is a relative path, ols.json is the same on every machine - delete
+# this line and commit it instead.
 ols.json
 
 # OS file-manager droppings

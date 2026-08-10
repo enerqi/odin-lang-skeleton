@@ -16,14 +16,61 @@ Template_Kind :: enum {
 	Lib,
 }
 
-// One embedded template file. `path` is repo-relative with forward slashes, as `git ls-files`
-// reports it; `data` is the file's contents baked in at compile time.
-//
-// The list itself lives in the generated templates.odin - see `just embed`.
+/*
+One embedded template file. `path` is repo-relative with forward slashes, as `git ls-files` reports it;
+`data` is the file's contents baked in at compile time.
+
+`feature` is the second axis, orthogonal to `kind`. An empty `feature` - the zero value, and the common
+case - means the file is part of every scaffold. A named one means the file belongs to an optional
+feature that `new` never writes and `odin-skel add <feature>` writes on request. See FEATURES.
+
+The list itself lives in the generated templates.odin - see `just embed`.
+*/
 Template :: struct {
-	path: string,
-	data: string,
-	kind: Template_Kind,
+	path:    string,
+	data:    string,
+	kind:    Template_Kind,
+	feature: string,
+}
+
+/*
+Optional features, by name. Each is a directory in this repository whose files carry that `feature` tag
+and are excluded from a plain scaffold.
+
+The design constraint that shaped this: a feature must be addable to a project that already exists,
+which rules out anything that has to edit a file the project already has. Recipes therefore ship as a
+`.just` file inside the feature directory, and the project justfile carries a permanent
+`import? '<dir>/<dir>.just'` - optional, so it is inert until the directory appears. Adding a feature is
+a file copy, removing it is `rm -rf`, and neither has an idempotency problem to get wrong.
+
+`dir` is both the directory in this repository and the directory in the scaffolded project: unlike the
+lib template, a feature is not relocated, so there is no path rewriting and no drift between the two.
+*/
+Feature :: struct {
+	name:        string,
+	dir:         string,
+	description: string,
+}
+
+FEATURE_BENCH :: "bench"
+
+@(rodata)
+FEATURES := [?]Feature {
+	{
+		name = FEATURE_BENCH,
+		dir = "bench",
+		description = "benchmark harness (bench/, plus its just recipes)",
+	},
+}
+
+@(require_results)
+find_feature :: proc(name: string) -> (Feature, bool) {
+	for f in FEATURES {
+		if f.name == name {
+			return f, true
+		}
+	}
+	return {}, false
 }
 
 @(require_results)

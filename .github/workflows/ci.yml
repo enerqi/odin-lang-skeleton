@@ -53,6 +53,18 @@ jobs:
 
       - uses: extractions/setup-just@v4
 
+      # For the bench feature's `bench_count`, which counts instructions under callgrind. Linux only:
+      # valgrind does not support Windows at all, and the macOS port lags the OS version by enough that
+      # it is not worth the runner minutes. The e2e steps below skip the counting half where it is
+      # absent, so the other two platforms still cover everything else.
+      #
+      # Note this is what perf would have been used for, and cannot: GitHub's runners expose no PMU to
+      # the guest, so `perf stat -e instructions:u` reports the event as unsupported. callgrind
+      # simulates rather than sampling, so it needs no hardware counter.
+      - name: install valgrind
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+
       # `new` (used below to scaffold a generated project) is a `[script]` recipe running on
       # `uv run -p 3.14 python` - see the note on the `astral-sh/setup-uv` step in the
       # `generated-files` job above. `lint`/`test`/`build_skel` above do not need this; only `new` does.
@@ -81,6 +93,11 @@ jobs:
       - name: test lib template
         run: just test_lib_template
 
+      # bench/ is an optional feature, so it is not covered by `lint` (root package only) or by either
+      # template's lint recipe. Its own recipe arrives with it, via the justfile's `import?`.
+      - name: lint bench feature
+        run: just bench_lint
+
       - name: build odin-skel
         run: just build_skel
 
@@ -98,6 +115,25 @@ jobs:
           test -f .sublime/ciproj.sublime-project
           test ! -e tools
           test ! -e .github
+          # Optional features are never scaffolded, only added. The justfile's `import?` ships anyway
+          # and must be inert: `just --list` has to work with the directory absent, which is the whole
+          # reason the import is optional.
+          test ! -e bench
+          just --list > /dev/null
+          grep -q "import? 'bench/bench.just'" justfile
+          # ... and `add` puts it there afterwards. `package bench` rather than `package main` is what
+          # makes this work at all for an executable, whose root is already `package main`.
+          "$GITHUB_WORKSPACE/target/debug/odin-skel.exe" add bench .
+          grep -q "^package bench$" bench/runner.odin
+          just bench_lint
+          just bench --samples=5 --warmup=1 --sample-time=1
+          # The counting path needs valgrind, which only the Linux job installs. Both halves are worth
+          # exercising: --fixed-iters runs the loop with no clock involved, which nothing else covers.
+          if command -v valgrind > /dev/null; then
+            just bench_count 8
+            test -f bench/instructions.json
+            just bench_count_check 8
+          fi
           grep -q "Copyright (c)" LICENSE
           # `! grep ...` would be exempt from `set -e`, so the leak checks are written as explicit
           # failures instead of relying on the exit status of a negated command.
@@ -139,11 +175,20 @@ jobs:
           test ! -e mylib
           test ! -e main.odin
           grep -q "^package odin_cilib$" odin_cilib.odin
+          # examples/ is `package main` and is not directly under mylib/, so the package rewrite
+          # must have left it alone.
+          grep -q "^package main$" examples/basic.odin
           just lint
           just check
           just test
           just example basic
           just examples
+          # Same optional feature, same two steps, for the other project kind.
+          test ! -e bench
+          grep -q "import? 'bench/bench.just'" justfile
+          "$GITHUB_WORKSPACE/target/debug/odin-skel.exe" add bench .
+          just bench_lint
+          just bench --samples=5 --warmup=1 --sample-time=1
           # The build ladder has nothing to build here, so its recipes must not have come through.
           # Anchored to the start of a line: `test_main_name` contains `main_name`, and the shared
           # comments mention the build recipes by name.

@@ -531,6 +531,80 @@ justfile has to be considered against both kinds rather than one.
 Steps 1 and 2 are load-bearing; 3 to 5 are mechanical once the template is a real package.
 
 
+## Decision 5 — optional features are added later, not scaffolded
+
+`odin-skel add <feature> [dir]` writes an optional feature into a project that **already exists**.
+`new` never writes one. The first is `bench`, the benchmark harness.
+
+The problem it solves is bulk, not capability. The harness is ~700 lines of statistics and commentary
+that most projects will never open, and a skeleton earns its keep by what a reader has to understand
+before touching anything. A third project kind would be the wrong shape — benchmarks are orthogonal to
+executable-vs-library, and a `--bench` flag on `new` would still make the decision at the one moment
+nobody has enough information to make it.
+
+Status: implemented.
+
+### 5a — a feature is a directory, copied verbatim
+
+No marker stripping, no package clause rewriting, no relocation. `Template.feature` is a second axis
+alongside `kind`, and `_embed` tags every file under a feature's directory. `new` skips any template
+with a non-empty `feature`; `add` writes only those, at the same relative path they occupy here.
+
+That verbatim rule is what keeps `add` small. Everything `new` does beyond copying exists because the
+skeleton's root is simultaneously a template and a live project. A feature directory has no such
+conflict: `bench/` here *is* `bench/` there.
+
+### 5b — recipes arrive by optional import, not by editing the justfile
+
+The load-bearing constraint is that a feature must be addable to a project that already exists, whose
+justfile the author has since edited. Anything that has to modify that file needs a splice point, an
+idempotency rule, and a merge story for the case where somebody changed the block by hand.
+
+just's `import?` removes the problem. The project justfile carries one permanent line:
+
+```just
+import? 'bench/bench.just'
+```
+
+The `?` means "if it is there". With the directory absent the line is inert — `just --list` shows no
+benchmark recipes and nothing errors. So `add` is a file copy, the uninstall is `rm -rf bench/`, and
+neither has state to get wrong. Verified: an imported file shares one namespace with its importer, so
+`linker`, the `target_path` function and the `mktarget_dirs` recipe are all visible to `bench.just`,
+while `bench_name` stays local to the feature.
+
+The import line sits outside every kind marker: a feature applies to either project shape, and putting
+it inside `exe-only` or `lib-only` would silently break the other. `test_feature_import_survives_both_kinds`
+asserts that after stripping.
+
+### 5c — the harness is `package bench`, and that is not cosmetic
+
+An executable project's root is `package main`. Odin permits exactly one package of a given name in a
+build, so a `bench/` that also declared `package main` fails before running anything:
+
+```
+Error: Duplicate declaration of 'package main'
+A package name must be unique
+```
+
+Odin does **not** require the entry package to be named `main` — only that it contains a `main`
+procedure. Naming the harness `bench` therefore makes one directory work for both kinds, and removes
+what would otherwise have been a second copy of the template. `test_bench_feature_is_not_package_main`
+holds it there.
+
+### 5d — the feature stays live, like the templates
+
+Decision 3's amendment applies unchanged: `bench/` is a real package in this repository, and the
+skeleton's own justfile imports its recipes, so `just bench_lint` and `just bench` run here. The
+scaffolded projects it produces have their own end-to-end coverage — both kinds scaffold, `add bench`,
+lint and run in CI — which is stronger than a static check, because it exercises the path a user takes.
+
+One thing this costs: `bench/bench.odin` cannot import `".."` in the shipped template, because the
+executable skeleton's root exposes nothing benchable. So the import pattern is documented in the file
+rather than compiled. Weaker than `examples/basic.odin`, which exists specifically to prove import
+depth — but `bench/` is a package build, not `-file` mode, so `".."` resolves by the ordinary rule and
+the `-file` subtlety that motivated that guard does not apply.
+
+
 ## Settled context for these decisions
 
 Verified against the toolchain rather than assumed:

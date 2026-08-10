@@ -11,7 +11,7 @@ VERSION :: #config(SKEL_VERSION, "dev")
 // Subcommands the binary implements itself. The passthrough MUST refuse to forward any of these to
 // `just`, otherwise `just new` -> `odin-skel new` -> `just new` ping-pongs forever once a name is
 // added here but the dispatch below forgets it (see tools/DESIGN.md, Open items / Loop guard).
-OWNED_COMMANDS :: []string{"new", "version", "doctor", "help"}
+OWNED_COMMANDS :: []string{"new", "add", "version", "doctor", "help"}
 
 HOMEPAGE :: "https://github.com/enerqi/odin-lang-skeleton"
 
@@ -42,6 +42,15 @@ Commands:
                       radlink on Windows (it ships with the Odin toolchain), "default" elsewhere.
                       mold is Linux-only and must be installed separately. Whatever is chosen,
                       ODIN_LINKER=<v> overrides it for a single command.
+  add <feature> [dir] Add an optional feature to an existing project (default: the current
+                      directory). Features are left out of "new" so that a project that does not
+                      want one carries none of its bulk - one optional import line in the justfile
+                      is the whole footprint. Removing one is deleting the feature's directory.
+      bench           Benchmark harness: warmup, iteration ramp with a robust line fit, outlier
+                      counts, JSON reports and a Mann-Whitney comparison against a baseline, plus
+                      instruction counts under callgrind for a gate that does not drift.
+                      Adds bench/ and the just recipes bench, bench_build, bench_cmp,
+                      bench_count, bench_count_check, bench_lint, bench_save and rerun_bench.
   doctor              Check for odin, just, odinfmt, git and uv; report what is missing, what is
                       too old, and where to get it.
   version             Print this binary's version.
@@ -55,6 +64,8 @@ Examples:
   odin-skel new ../srv --linker=mold  scaffold with mold pinned as the project's linker
   odin-skel new ../odin-toml --lib    scaffold a library; package name defaults to "odin_toml"
   odin-skel new ../odin-toml --lib --pkg=toml   ... or name the package yourself
+  odin-skel add bench                 add the benchmark harness to the project in this directory
+  odin-skel add bench ../my-game      ... or to one somewhere else
   odin-skel doctor                    check the toolchain before starting
 
 After scaffolding, the project is driven by just (https://just.systems):
@@ -87,6 +98,24 @@ run :: proc() -> int {
 		// Not in OWNED_COMMANDS: flags are never forwarded to `just`, only bare subcommands are.
 		fmt.printfln("odin-skel %s", VERSION)
 		return 0
+	case "add":
+		// No flags, so no parser: `add <feature> [dir]`, and the directory defaults to the one the
+		// user is standing in, which is where somebody adding a feature to their own project already is.
+		if len(args) < 2 {
+			fmt.eprintln("odin-skel: `add` needs a feature name")
+			fmt.eprintln("usage: odin-skel add <feature> [dir]")
+			fmt.eprintln("features:")
+			for f in FEATURES {
+				fmt.eprintfln("  %-8s %s", f.name, f.description)
+			}
+			return 2
+		}
+		if len(args) > 3 {
+			fmt.eprintfln("odin-skel: `add` takes at most a feature and a directory, got %d arguments", len(args) - 1)
+			return 2
+		}
+		dest := len(args) >= 3 ? args[2] : "."
+		return add(dest, args[1])
 	case "doctor":
 		return doctor()
 	case "help", "-h", "--help":

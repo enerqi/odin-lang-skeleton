@@ -91,3 +91,9 @@ test_owned_commands_cover_dispatch :: proc(t: ^testing.T) {
 		testing.expect(t, slice.contains(owned, name), "dispatched command missing from OWNED_COMMANDS")
 	}
 }
+
+// `add` is dispatched in main.odin, so the loop guard applies to it too.
+@(test)
+test_owned_commands_cover_add :: proc(t: ^testing.T) {
+	testing.expect(t, slice.contains(OWNED_COMMANDS, "add"), "`add` missing from OWNED_COMMANDS")
+}

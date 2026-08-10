@@ -76,6 +76,12 @@ new :: proc(dest: string, name: string, linker: string = "", kind := Project_Kin
 		if !template_wanted(tmpl.kind, kind) {
 			continue
 		}
+		// Optional features are never part of a scaffold, whatever the kind - `odin-skel add <name>`
+		// writes them into a project that already exists. The justfile's `import?` line ships either
+		// way and is inert until the directory is there.
+		if tmpl.feature != "" {
+			continue
+		}
 
 		out_rel, content: string
 		owned_rel, owned_content: bool

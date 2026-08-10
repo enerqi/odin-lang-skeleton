@@ -124,6 +124,26 @@ are rewritten rather than copied verbatim:
 The `.sublime-snippet` files are copied so you stay aware of them, but treat them as a one-off starting point (the
 generator that keeps them in sync stays behind — see [Generated editor snippets](#generated-editor-snippets)).
 
+### Optional features
+
+Some things are deliberately left out of a scaffold and added on request, to either project kind:
+
+```
+odin-skel add bench             # in the project directory
+odin-skel add bench ../my-game  # or somewhere else
+```
+
+| feature | adds |
+| --- | --- |
+| `bench` | `bench/` — a benchmark harness, your benchmarks, and the `just bench*` recipes. See [Benchmarking](#benchmarking) |
+
+The reason they are opt-in is bulk, not capability: the benchmark harness is several hundred lines of statistics
+that most projects never open, and a skeleton is worth what a reader can hold in their head.
+
+Nothing needs editing to install one. The generated justfile already carries `import? 'bench/bench.just'` — an
+*optional* import, so it does nothing until the directory exists, and `just --list` is clean either way. The
+feature's recipes ship inside the feature. Removing it is `rm -rf bench/`.
+
 
 <!-- <<< skeleton-only -->
 
@@ -240,6 +260,16 @@ and the examples are what prove the package is usable from outside it:
 * `just doc` — print the package documentation (`odin doc .`)
 <!-- <<< lib-only -->
 
+**Benchmarks** — present only once `bench/` is, which it is not by default. See
+[Benchmarking](#benchmarking):
+
+* `just bench [NAME] [--samples=N …]` — build and run the benchmarks; `NAME` filters by substring
+* `just bench_build` / `just rerun_bench` — build without running / run without rebuilding
+* `just bench_lint` — type check and vet `bench/`, which the root `lint` does not reach
+* `just bench_save` / `just bench_cmp` — record a timing baseline / re-run and diff against it
+* `just bench_count` / `just bench_count_check` — the same for *instruction counts* under callgrind,
+  which do not drift between runs and can therefore gate a merge (needs valgrind)
+
 **Quality:**
 
 * `just lint` — type checking, vet warnings, strict style. No code generation
@@ -270,7 +300,7 @@ and the examples are what prove the package is usable from outside it:
 **Editor setup** (these three run on Python via [uv](https://docs.astral.sh/uv/) — see
 [Some recipes need uv](#some-recipes-need-uv)):
 
-* `just ols-config` — (re)generate `ols.json` (see [Language Server Configuration](#language-server-configuration))
+* `just ols-config NAME=PATH...` — (re)generate the `ols.json` collection list (see [Language Server Configuration](#language-server-configuration))
 * `just install-sublime` — install the snippets + build systems into Sublime Text's global config (see the Sublime section)
 * `just sublime-build-init` — add a project-local build-system stub to the `.sublime-project` (see the Sublime section)
 
@@ -466,6 +496,186 @@ the code costs at runtime.
 Note that any external measurement includes process startup, which was ~31ms on this machine, so for
 sub-second work put `time.now()` / `time.since` around the specific phase you care about instead.
 
+<!-- >>> exe-only -->
+For the program itself rather than the recipe, [hyperfine](https://github.com/sharkdp/hyperfine) does
+the job properly — warmup runs, mean/σ/min/max, outlier warnings and `--export-json`:
+
+```
+just run_release            # build first: Odin has no build cache, so timing a run_* recipe
+just time_release           # would mostly be timing the compiler
+just time_release --flag=x  # arguments are passed through to the program
+
+just run_release_nochecks   # and to see what the bounds checks actually cost:
+just time_profiles          # hyperfine prints the ratio between the two binaries
+```
+
+Both use `-N`, which runs the binary directly rather than through a shell — hyperfine warns it cannot
+calibrate shell startup accurately below ~5ms, and a small Odin program is well below that. The cost is
+that the command line is split on whitespace rather than parsed, so no pipes or quoted arguments
+containing spaces.
+
+This still measures whole processes. For per-procedure numbers, see [Benchmarking](#benchmarking).
+<!-- <<< exe-only -->
+
+## Benchmarking
+
+<!-- >>> skeleton-only -->
+Not part of a scaffolded project — add it with `odin-skel add bench`, to either project kind. See
+[Optional features](#optional-features).
+<!-- <<< skeleton-only -->
+
+`bench/` holds the harness, your benchmarks, and a `bench.just` carrying the recipes. The justfile's
+`import? 'bench/bench.just'` is an *optional* import: it does nothing while the directory is absent, so
+the `just bench*` recipes appear the moment it arrives and `rm -rf bench/` takes them away again. The
+harness is `package bench` rather than `package main` on purpose — an executable project's root is
+already `package main`, and Odin permits only one package of a given name per build.
+
+Odin has no `cargo bench`. `core:time` has a `benchmark()` procedure, and it is worth knowing what it
+is before reaching for it: it calls your procedure **once**, wraps it in a stopwatch, and divides. The
+`rounds` field is inert — a number your own procedure is expected to loop over. No warmup, no repeat
+samples, no spread, no baseline. That is a stopwatch, and a stopwatch cannot answer "did this change
+make it slower", which is the question a benchmark suite exists for.
+
+`bench/` is a small harness on top of the same clock, borrowing the ideas that make
+[criterion](https://github.com/bheisler/criterion.rs) (Haskell first, then Rust) worth using:
+
+* **warm up**, so the first sample is not measuring a cold i-cache and an idling clock
+* **sample across a ramp of iteration counts and fit a line.** Not measure-N-and-divide. The slope is
+  the per-iteration cost; the intercept absorbs the cost of measuring — two clock reads and an indirect
+  call, which at sub-nanosecond scale is most of what divide-by-N would have reported
+* **fit robustly** (Theil–Sen, the median of pairwise slopes), so two preempted samples cannot move the
+  answer the way least-squares lets them
+* **report R² and outlier counts**, which say whether the samples describe one thing at all
+* **test against the baseline** with a two-sided Mann–Whitney U test, so a change is called out on a
+  p-value plus a magnitude threshold rather than a percentage alone
+* **write JSON** (`--json=PATH`, or `-` for stdout) carrying every sample, because the test needs the
+  distributions and not their summaries
+
+```
+$ just bench
+name                     ns/iter      +/-mad      R^2    throughput  samples
+bench.empty_loop        0.117 ns    0.000 ns   0.9998                50 x 165371824
+lib.add                 0.419 ns    0.000 ns   0.9999                50 x 46658006
+lib.add_sum            56.367 ns    0.098 ns   0.9373  138600.6 MB/s  50 x 342761  <- POOR FIT (3 severe, 1 mild outliers)
+```
+
+```
+$ just bench_cmp
+name                    baseline         current      delta          p
+bench.empty_loop        0.120 ns        0.118 ns      -1.5%     0.0000
+lib.add                 0.419 ns        0.421 ns      +0.5%     0.0701
+lib.add_sum            56.447 ns       56.726 ns      +0.5%     0.2838
+```
+
+Read that second table carefully, because it is the whole point. `empty_loop` moved by a **statistically
+certain** 1.5% (p = 0.0000) — the machine really did change — and is not called out, because 1.5% is
+below the threshold you said you cared about. `lib.add` moved 0.5% at p = 0.07, which is not even real.
+Nothing fires. The earlier version of this diff, which compared percentages against a spread heuristic,
+printed `+32% REGRESS` on this same unchanged code.
+
+### The part that actually matters: `keep` and `opaque`
+
+Odin has no `black_box`. At `-o:speed` a loop whose result nothing reads is dead code, and LLVM deletes
+it — the benchmark then reports the cost of an empty loop and nothing warns you. Two helpers stand in:
+
+* `keep(value)` — volatile-stores the value, so everything that computed it has to run
+* `opaque(value)` — round-trips the value through a volatile store and load, so the compiler cannot
+  constant-fold through it or hoist it out of the loop
+
+Use both, and read `bench/bench.odin` before writing your first case: it documents the four rules and
+the two failure modes that survive them. Both bit this harness during development. A sum over a fixed
+1024-element slice reported **13 TB/s** because the slice never changed, so the whole inner loop was
+loop-invariant and got hoisted; an `acc = add(acc, i)` chain was replaced outright by the closed form
+`n * (n - 1) / 2`. Neither shows up as an error — only as an implausible number.
+
+The harness flags the extreme case: when calibration runs to billions of iterations without a
+measurable reading, the row is marked `OPTIMIZED AWAY` rather than printed as a result. The subtler
+cases it cannot detect. `bench.empty_loop` is the sanity check to compare against — nothing real is
+faster than the loop itself — and `odin build bench -o:speed -build-mode:asm` is the way to settle it,
+which is how both of the above were found.
+
+### Reading R² and the outlier counts
+
+`R^2` is how well the samples fit the line, and it is the stand-in for the plots this harness does not
+draw. Above ~0.999 on an idle machine. When it drops, the outlier counts say why:
+
+* **a few severe outliers, R² poor** — something else woke up on your core. Re-run. The reported ns/iter
+  is a robust fit and survives this; the spread column does not
+* **many mild, no severe** — the benchmark itself has two modes: two code paths, a branch predictor
+  flipping state, an allocator crossing a size class. One number cannot describe it, and no amount of
+  re-running will fix that. Split the benchmark
+* **outliers spread evenly through the run** — drift, usually thermal
+
+### Baselines, and where this stops being trustworthy
+
+```
+just bench_save     # record target/release/bench-baseline.json
+just bench_cmp      # after changing something: re-run and diff against it
+```
+
+A row is called out only when the change clears two independent bars, which answer different questions:
+
+* **is it real?** — `p < --alpha` (default 0.05), from the Mann–Whitney U test over both runs' samples.
+  A rank test, so it assumes nothing about the shape of the distribution; timing distributions have a
+  hard floor and a long tail, and a t-test would read that skew as signal
+* **do I care?** — `|delta| >= --threshold` (default 5%). With 50 samples the test finds differences far
+  below the size worth acting on, so this is where you say how small is too small
+
+Neither bar covers drift *between* runs. Both are computed within one run, minutes after the baseline's,
+and on a machine doing anything else — a laptop warming up, a shared CI runner — identical code drifts
+5–10%. That drift is both real and significant, because the machine really did change; the test cannot
+tell you whether the machine or the code moved. Baselines are per machine for the same reason, which is
+why they live in `target/` and are not committed. The diff warns when the recorded OS, architecture or
+optimization level differs from the current run, but it cannot warn about the machine being busy.
+
+So: `--fail-on-regress` exists, and putting it on a shared runner produces a gate people re-trigger
+until it goes green, which is worse than no gate. If you want a real regression gate, gate on
+instruction counts instead of wall time — `perf stat -e instructions:u ./target/release/bench.exe` on
+Linux varies by a fraction of a percent where wall time varies by ten. What this harness is good at is
+the local loop: record a baseline, change something, see whether it moved.
+
+#### Instruction counts: the gate that does not flake
+
+```
+just bench_count           # record bench/instructions.json
+just bench_count_check     # re-measure and diff; exits non-zero on a regression
+```
+
+Needs [valgrind](https://valgrind.org/) (`apt install valgrind`; not available on Windows).
+
+This measures **executed instructions**, not time, by running the benchmarks under callgrind — which
+counts by simulating every instruction rather than sampling a hardware counter. The same binary yields
+the same number every time, on any machine, in any VM. That is the property wall time can never have,
+and it is what makes this the only one of the two worth gating a merge on.
+
+Two details make the number mean something:
+
+* **the count is the difference between running N and 2N iterations.** Process start, runtime init, the
+  benchmark's `setup` and its allocations, valgrind's own instrumentation — all identical in both runs,
+  all cancel exactly. What is left is N iterations of the loop body and nothing else
+* **the counting build drops `-microarch:native`.** Every other recipe here keeps it; this one must not,
+  or the count describes the machine instead of the code
+
+`bench/instructions.json` is meant to be committed, unlike the timing baseline — but only holds across
+the same Odin version and the same libc, so regenerate it when either moves. The check warns when the
+recorded compiler version differs from the current one.
+
+What it cannot see: instructions are not time. A change that halves the instruction count while
+destroying cache locality reads here as an improvement. Use this for "did the work change" and
+`just bench_cmp` for "did the time change".
+
+`perf stat -e instructions:u` is the obvious alternative and fails where it is most wanted — GitHub's
+hosted runners expose no PMU to the guest, so hardware events come back unsupported. callgrind needs no
+PMU.
+
+## What to use instead, and when
+
+* **hyperfine** for anything at process level — CLI startup, a whole run, comparing build flags. It has
+  warmup, statistics and `--export-json`, and its process floor is irrelevant at that scale and fatal
+  below it. The executable skeleton wires it up as `just time_release` and `just time_profiles`
+* **spall** (`-define:SPALL_ENABLE=true` in the executable skeleton) for *why* something is slow, not
+  whether it got slower. It produces a trace to read, not numbers to compare
+
 ## [Sublime Text](https://www.sublimetext.com/) editor specific files
 
 The `OdinJustTarget.sublime-build` file is an example [sublime build file](https://www.sublimetext.com/docs/build_systems.html). Delete it if no developer is using sublime text.
@@ -525,15 +735,26 @@ show you can configure OLS settings in ways specific to your editor, often in a 
 However, you can also use the `ols.json` file, perhaps to add odin "collections" specific to your project.
 This is initially an empty collection list.
 
-If you do need an extra collection (so OLS resolves `import "xyz:pkg"` from a directory outside this project),
-the `ols-config` just task regenerates `ols.json` for you:
+If you do need extra collections (so OLS resolves `import "xyz:pkg"` from a directory outside this project), the
+`ols-config` just task writes the collection list for you. Each argument is `name=path`:
 
-* edit the `collection_name` / `collection_path` variables (and the `XYZ_HOME` env var name) near the top of the
-	`justfile` to match your collection
-* run e.g. `XYZ_HOME=/path/to/collection just ols-config`
+```sh
+just ols-config xyz=../xyz-lib abc=/opt/odin/abc
+just ols-config                                   # print what is currently configured
+```
 
-Because the path is an absolute, machine-specific location, prefer to gitignore `ols.json` and have each developer
-regenerate it after cloning or whenever the path changes.
+The arguments are the *whole* collection list — rerunning replaces it, so there is no add/remove pair of commands
+to keep straight. Every other key in `ols.json` (`enable_document_symbols`, `checker_path`, `odin_command` …) is
+read back and preserved, so the recipe and hand-editing can coexist.
+
+**Prefer a relative path.** OLS resolves a relative collection path against the project root, so a collection kept
+as a sibling checkout (`../xyz-lib`) produces an `ols.json` that is identical on every machine — delete the
+`ols.json` line from `.gitignore` and commit it. An absolute path is machine-specific, which is why the skeleton
+ignores the file by default and each developer regenerates it after cloning. A leading `~` is expanded, but on
+Linux and macOS only; on Windows write the path out in full.
+
+`ols.json` itself is plain JSON with no variable substitution — OLS does not expand environment variables in
+collection paths — which is why a recipe generates the file rather than the file reading `XYZ_HOME` itself.
 
 <!-- >>> skeleton-only -->
 ## Skeleton maintenance

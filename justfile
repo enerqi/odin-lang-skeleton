@@ -96,10 +96,17 @@ target_path(dir, name) := join("target", dir, name)
 # with the one added below.
 linker := env_var_or_default("ODIN_LINKER", if os() == "windows" { "radlink" } else { "default" })
 
-# SKELETON: name your extra collection (the `xyz:` prefix in `import "xyz:pkg"`) and where it lives.
-# collection_path is read from an env var so the absolute path stays out of git; rename both to suit.
-collection_name := "xyz"
-collection_path := env_var_or_default("XYZ_HOME", "")
+# Optional features add their recipes by shipping a `.just` file, not by editing this one. The `?`
+# means "import it if it is there": with the directory absent this line does nothing, `just --list`
+# shows no benchmark recipes, and nothing errors. That is what lets `odin-skel add bench` be a plain
+# file copy - no justfile to patch, no marker block to splice, nothing to make idempotent - and lets
+# `rm -rf bench/` be the uninstall.
+#
+# An imported file shares one namespace with this one, so `linker`, `target_path` and `mktarget_dirs`
+# below are all visible to it. Recipe names must not collide; the feature prefixes all of its own.
+#
+#     odin-skel add bench       adds bench/ (harness, your benchmarks, and the recipes)
+import? 'bench/bench.just'
 
 # odinfmt every odin file under this directory or subdirectories
 format:
@@ -283,6 +290,7 @@ examples:
 # print the library's documentation
 doc *args:
 	odin doc . {{args}}
+
 # <<< lib-only
 
 # See the notes above for platform support, the Windows heap caveat and why no linker is pinned.
@@ -316,6 +324,38 @@ rerun_release *args:
 # re-run the last nochecks binary without recompiling. Requires a prior `run_release_nochecks` build.
 rerun_release_nochecks *args:
 	{{ target_path("release_nochecks", main_name) }} {{args}}
+
+# hyperfine (https://github.com/sharkdp/hyperfine) times whole *processes*: warmup runs, a configurable
+# number of timed runs, mean/stddev/min/max and outlier warnings, plus `--export-json` and
+# `--export-markdown`. Install it separately - `just doctor` reports whether it is there.
+#
+# This is the right tool for what the program costs end to end, and the wrong one for anything smaller:
+# process startup was ~31ms on this machine (see "Timing a recipe" in the README), which swamps
+# everything below it. For per-procedure numbers add the benchmark harness instead - `odin-skel add
+# bench` - which measures inside one process and can resolve fractions of a nanosecond.
+#
+# Deliberately over `rerun_release`'s binary rather than over `just run_release`: Odin has no build
+# cache, so timing the recipe would mostly time the compiler. Build first.
+#
+# `-N` runs the binary directly instead of through a shell. Without it hyperfine spawns a shell per run
+# and calibrates its cost away, which it warns it cannot do accurately below ~5ms - and a small Odin
+# program is well below that. The cost of `-N` is that the command is split on whitespace rather than
+# parsed, so no pipes, redirects or quoted arguments containing spaces.
+#
+# Usage:  just time_release            time the release binary
+#         just time_release --flag=x   ... passing arguments to the program
+# ---
+# time the release binary end to end with hyperfine (needs a prior run_release/build)
+time_release *args:
+	hyperfine -N --warmup 3 "{{ target_path("release", main_name) }} {{args}}"
+
+# A/B two build profiles against each other in one run - hyperfine prints the ratio between them, which
+# is the number worth knowing about `-no-bounds-check`. Needs a prior `run_release` AND
+# `run_release_nochecks`, since it times both binaries.
+# ---
+# compare the release and nochecks binaries with hyperfine
+time_profiles *args:
+	hyperfine -N --warmup 3 "{{ target_path("release", main_name) }} {{args}}" "{{ target_path("release_nochecks", main_name) }} {{args}}"
 # <<< exe-only
 
 # run all tests
@@ -472,26 +512,85 @@ sublime-build-init:
 # <<< snippet-exclude
 
 
-# Resolves an extra collection import (`import "{{collection_name}}:pkg"`). Only needed when you pull
-# packages from a directory outside this project. ols.json holds a machine-specific absolute path, so
-# gitignore it and regenerate after cloning or when the path changes:
-#     XYZ_HOME=/path/to/collection just ols-config
-# FILL IN: rename collection_name / collection_path (and the XYZ_HOME env var) above to match your collection.
+# Resolves extra collection imports (`import "xyz:pkg"`). Only needed when you pull packages from a
+# directory outside this project. Each argument is `name=path`, and the arguments are the whole
+# collection list - a rerun replaces it, and every other setting already in ols.json is left alone:
+#     just ols-config xyz=../xyz-lib abc=/opt/odin/abc
+# Run it with no arguments to print what is currently configured.
+#
+# ols resolves a relative path against this project's root, so a collection kept as a sibling
+# checkout gives an ols.json that is identical on every machine - drop the `ols.json` line from
+# .gitignore and commit it. An absolute path is machine-specific, which is why the file is ignored by
+# default. A leading `~` expands on Linux and macOS only; on Windows write the path out in full.
+#
+# A path containing a space cannot be passed here: just joins a variadic parameter's arguments with
+# spaces before the recipe body sees them, so no amount of quoting survives the trip. Edit ols.json
+# by hand for that case - the recipe reads the file back, so it is not an either/or.
 # ---
-# SKELETON: (re)generate ols.json so the Odin language server resolves an extra collection
+# SKELETON: (re)generate ols.json so the Odin language server resolves extra collections
 [script]
-ols-config:
-	import json, sys
-	path = r"{{collection_path}}"
-	if not path:
-		sys.exit("set the collection path env var first, e.g. XYZ_HOME=/path/to/collection just ols-config")
-	config = {
-		"$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
-		"collections": [{"name": "{{collection_name}}", "path": path}],
-	}
-	with open("ols.json", "w") as f:
+ols-config *pairs:
+	import json, os, re, sys
+
+	USAGE = "usage: just ols-config name=path [name=path ...]   e.g. just ols-config xyz=../xyz-lib"
+
+	# str.split, not shlex.split: shlex in its default POSIX mode treats a backslash as an escape and
+	# would eat every separator in a Windows path (C:\odin\libs -> C:odinlibs). The space before the
+	# closing quote is load-bearing, not a typo - a path ending in a backslash would otherwise escape
+	# the quote and leave the string unterminated. str.split() discards it again as trailing space.
+	args = r'''{{pairs}} '''.split()
+
+	# Read before write. ols.json also holds editor settings (enable_document_symbols, checker_path,
+	# odin_command, ...), and only the collection list is ours to rewrite.
+	config = {}
+	if os.path.exists("ols.json"):
+		with open("ols.json", encoding="utf-8") as f:
+			try:
+				config = json.load(f)
+			except ValueError as err:
+				sys.exit("ols.json is not valid JSON - fix or delete it first: " + str(err))
+		if not isinstance(config, dict):
+			sys.exit("ols.json does not hold a JSON object - fix or delete it first")
+
+	if not args:
+		configured = config.get("collections") or []
+		for entry in configured:
+			print(entry.get("name", "?") + " -> " + entry.get("path", "?"))
+		if not configured:
+			print("no collections configured")
+		print(USAGE)
+		sys.exit(0)
+
+	collections = []
+	seen = set()
+	for arg in args:
+		# partition, not split: only the first `=` separates, so a path may contain one.
+		name, sep, path = arg.partition("=")
+		if not sep or not name or not path:
+			sys.exit("expected name=path, got " + repr(arg) + "\n" + USAGE)
+		# The name is what precedes the colon in `import "xyz:pkg"`, so odin's own rule applies: it has
+		# to be an identifier. Without this a typo like `b/c=d` writes a collection nothing can import.
+		if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+			sys.exit("collection name " + repr(name) + " is not an identifier")
+		if name in seen:
+			sys.exit("collection " + repr(name) + " given twice")
+		seen.add(name)
+		collections.append({"name": name, "path": path})
+
+	# Second pass so a later bad argument fails before any warning about an earlier good one.
+	for entry in collections:
+		if not os.path.isdir(entry["path"]):
+			# Not fatal - the collection may be cloned later, and ols reads this file on startup.
+			print("warning: " + entry["path"] + " is not a directory (yet)", file=sys.stderr)
+
+	config.setdefault(
+		"$schema", "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json"
+	)
+	config["collections"] = collections
+	with open("ols.json", "w", encoding="utf-8", newline="\n") as f:
 		f.write(json.dumps(config, indent=4) + "\n")
-	print("wrote ols.json -> {{collection_name}} collection at " + path)
+	for entry in collections:
+		print("wrote ols.json -> " + entry["name"] + " collection at " + entry["path"])
 
 
 # >>> skeleton-only
@@ -577,6 +676,22 @@ new dest name="" *flags:
 		argv.append(name)
 	argv.extend(r"""{{flags}}""".split())
 	raise SystemExit(subprocess.run(argv).returncode)
+
+# The same thin wrapper for the other half of the tool. `dest` defaults to "." so that
+# `just add bench` works on the project you are standing in, which is the usual case; the skeleton
+# repo itself already carries bench/, so here it is mostly for testing the path a user takes.
+# Usage:  just add bench   or   just add bench ../my-game
+# ---
+# add an optional feature (bench) to a project
+[script]
+add feature dest=".":
+	import os, subprocess, sys
+
+	binary = os.path.join("target", "debug", "{{skel_name}}")
+	if not os.path.isfile(binary):
+		sys.exit("missing " + binary + " - run `just build_skel` first")
+
+	raise SystemExit(subprocess.run([binary, "add", r"{{feature}}", r"{{dest}}"]).returncode)
 
 
 # Moves everything under `## [Unreleased]` into a new `## [VERSION] - <today>` heading, leaves a
@@ -720,8 +835,13 @@ _embed mode:
 	#   packaging/    the scoop manifest and install script for distributing odin-skel
 	#   CHANGELOG.md  this skeleton's history; a new project starts with none of its own
 	# A project-level CI template would be a separate file, not this one - see tools/DESIGN.md.
+	# bench/instructions.json is a *recorded measurement*, not template text. `just bench_count` writes
+	# it and the README says to commit it, so it can legitimately be tracked here - and if it were
+	# embedded, `odin-skel add bench` would copy this repository's instruction counts into every user
+	# project, where `bench_count_check` would immediately diff their numbers against this machine's
+	# compiler. Excluded rather than gitignored, so a maintainer can still commit one.
 	EXCLUDED_PREFIXES = ("tools/", ".github/", "packaging/")
-	EXCLUDED_FILES = ("CHANGELOG.md",)
+	EXCLUDED_FILES = ("CHANGELOG.md", "bench/instructions.json")
 	GENERATED = os.path.join("tools", "skel", "templates.odin")
 
 	# Files belonging to only one project kind. Everything else is `.Both`, which is the enum's zero
@@ -732,12 +852,23 @@ _embed mode:
 	LIB_TEMPLATE_DIR = "mylib"
 	EXE_ONLY_FILES = ("main.odin",)
 
+	# Optional features: directories `new` never writes and `odin-skel add <name>` writes on request.
+	# Both kinds can take them, so a feature file stays `.Both` and is filtered on `feature` instead.
+	# Keep in step with FEATURES in tools/skel/template.odin.
+	FEATURE_DIRS = {"bench": "bench"}
+
 	def kind_of(rel):
 		if rel.startswith(LIB_TEMPLATE_DIR + "/"):
 			return "Lib"
 		if rel in EXE_ONLY_FILES:
 			return "Exe"
 		return "Both"
+
+	def feature_of(rel):
+		for directory, name in FEATURE_DIRS.items():
+			if rel == directory or rel.startswith(directory + "/"):
+				return name
+		return ""
 
 	files = subprocess.run(
 		["git", "ls-files"], capture_output=True, text=True, check=True
@@ -762,13 +893,14 @@ _embed mode:
 	for rel in files:
 		# #load resolves relative to this generated file, which lives two directories down.
 		load_path = "../../" + rel
+		entry = '\t{path = "%s", data = #load("%s", string)' % (rel, load_path)
 		kind = kind_of(rel)
-		if kind == "Both":
-			lines.append('\t{path = "%s", data = #load("%s", string)},' % (rel, load_path))
-		else:
-			lines.append(
-				'\t{path = "%s", data = #load("%s", string), kind = .%s},' % (rel, load_path, kind)
-			)
+		if kind != "Both":
+			entry += ", kind = .%s" % kind
+		feature = feature_of(rel)
+		if feature:
+			entry += ', feature = "%s"' % feature
+		lines.append(entry + "},")
 	lines.append("}")
 	content = "\n".join(lines) + "\n"
 
@@ -818,6 +950,17 @@ _embed mode:
 			if want != got:
 				problems.append(
 					"  %d files are kind .%s but %d entries say so" % (want, kind, got)
+				)
+
+		# Features are counted the same way and for the same reason. This is the check that matters most
+		# of the three: a feature file that loses its tag is silently promoted into every scaffold, which
+		# is exactly the bulk the feature mechanism exists to keep out.
+		for feature in sorted(set(FEATURE_DIRS.values())):
+			want = sum(1 for f in files if feature_of(f) == feature)
+			got = len(re.findall(r'feature\s*=\s*"' + feature + r'"', current))
+			if want != got:
+				problems.append(
+					'  %d files are feature "%s" but %d entries say so' % (want, feature, got)
 				)
 
 		if problems:

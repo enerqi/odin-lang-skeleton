@@ -75,6 +75,24 @@ CHECKS :: []Tool_Check {
 		why        = "runs the justfile's `[script]` recipes (editor setup everywhere, `examples` in a library) without a system python",
 		install    = "https://docs.astral.sh/uv/getting-started/installation/",
 	},
+	{
+		name       = "hyperfine",
+		probe_args = {"hyperfine", "--version"},
+		required   = false,
+		why        = "only `just time_release` / `just time_profiles` need it - whole-process timings",
+		install    = "https://github.com/sharkdp/hyperfine#installation",
+	},
+	{
+		name       = "valgrind",
+		probe_args = {"valgrind", "--version"},
+		required   = false,
+		// Listed even though most projects never add the bench feature: it is the one tool here whose
+		// absence is not obvious from the error. `just bench_count` fails at the point of use with a
+		// message naming it, and doctor is where somebody looks before that happens. Not available on
+		// Windows at all, which the report says rather than making it look installable.
+		why        = "only `just bench_count` needs it (the bench feature; not available on Windows)",
+		install    = "apt install valgrind / brew install valgrind",
+	},
 }
 
 /*
@@ -97,17 +115,17 @@ doctor :: proc() -> int {
 		if !result.found {
 			if check.required {
 				failures += 1
-				fmt.eprintfln("MISSING  %-8s (%s) - %s", check.name, label, check.why)
+				fmt.eprintfln("MISSING  %-9s (%s) - %s", check.name, label, check.why)
 				fmt.eprintfln("         install: %s", check.install)
 			} else {
-				fmt.printfln("absent   %-8s (%s) - %s", check.name, label, check.why)
+				fmt.printfln("absent   %-9s (%s) - %s", check.name, label, check.why)
 				fmt.printfln("         install: %s", check.install)
 			}
 			continue
 		}
 
 		if check.presence_only {
-			fmt.printfln("ok       %-8s present", check.name)
+			fmt.printfln("ok       %-9s present", check.name)
 			continue
 		}
 
@@ -118,19 +136,19 @@ doctor :: proc() -> int {
 			if !ok {
 				// Present and runnable but unparseable: warn, do not fail. A version-banner change
 				// upstream should not brick the tool.
-				fmt.printfln("ok?      %-8s %s (could not parse a version)", check.name, banner)
+				fmt.printfln("ok?      %-9s %s (could not parse a version)", check.name, banner)
 				continue
 			}
 			req := check.min_version
 			if !version_at_least(major, minor, patch, req[0], req[1], req[2]) {
 				failures += 1
-				fmt.eprintfln("TOO OLD  %-8s %s - need >= %d.%d.%d", check.name, banner, req[0], req[1], req[2])
+				fmt.eprintfln("TOO OLD  %-9s %s - need >= %d.%d.%d", check.name, banner, req[0], req[1], req[2])
 				fmt.eprintfln("         install: %s", check.install)
 				continue
 			}
 		}
 
-		fmt.printfln("ok       %-8s %s", check.name, banner)
+		fmt.printfln("ok       %-9s %s", check.name, banner)
 	}
 
 	if failures > 0 {

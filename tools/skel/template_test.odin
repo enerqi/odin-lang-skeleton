@@ -729,3 +729,179 @@ test_strip_on_the_real_readme :: proc(t: ^testing.T) {
 		testing.expectf(t, strings.contains(got, kept), "README content %q was stripped", kept)
 	}
 }
+
+// Every feature declared in FEATURES must actually have files carrying its tag, and every tagged file
+// must belong to a declared feature. Either half drifting produces the same silent failure: `add`
+// reports success and writes nothing, or files vanish from every scaffold with no way to get them back.
+@(test)
+test_features_match_embedded_templates :: proc(t: ^testing.T) {
+	testing.expect(t, len(FEATURES) > 0, "no features declared")
+
+	for feature in FEATURES {
+		prefix := strings.concatenate({feature.dir, "/"}, context.allocator)
+		defer delete(prefix)
+
+		count := 0
+		for tmpl in TEMPLATES {
+			if tmpl.feature == feature.name {
+				count += 1
+				testing.expectf(
+					t,
+					strings.has_prefix(tmpl.path, prefix),
+					"%q carries feature %q but is not under %q/ - `add` writes paths verbatim",
+					tmpl.path,
+					feature.name,
+					feature.dir,
+				)
+			}
+		}
+		testing.expectf(t, count > 0, "feature %q has no embedded files - run `just embed`", feature.name)
+	}
+
+	for tmpl in TEMPLATES {
+		if tmpl.feature == "" {
+			continue
+		}
+		_, known := find_feature(tmpl.feature)
+		testing.expectf(t, known, "%q carries unknown feature %q", tmpl.path, tmpl.feature)
+	}
+}
+
+// The inverse, and the one that matters for bulk: a file living in a feature's directory must carry the
+// tag. An untagged one is silently promoted into every scaffold, which is what the feature mechanism
+// exists to prevent.
+@(test)
+test_feature_directories_are_fully_tagged :: proc(t: ^testing.T) {
+	for feature in FEATURES {
+		prefix := strings.concatenate({feature.dir, "/"}, context.allocator)
+		defer delete(prefix)
+
+		for tmpl in TEMPLATES {
+			if strings.has_prefix(tmpl.path, prefix) {
+				testing.expectf(
+					t,
+					tmpl.feature == feature.name,
+					"%q is under %q/ but is tagged %q - run `just embed`",
+					tmpl.path,
+					feature.dir,
+					tmpl.feature,
+				)
+			}
+		}
+	}
+}
+
+// A feature is added to a project that already exists, so its recipes have to arrive without editing
+// the justfile. That works only if the shipped justfile already carries the optional import.
+@(test)
+test_justfile_imports_every_feature :: proc(t: ^testing.T) {
+	source := ""
+	for tmpl in TEMPLATES {
+		if tmpl.path == "justfile" {
+			source = tmpl.data
+			break
+		}
+	}
+	testing.expect(t, source != "", "justfile missing from TEMPLATES - run `just embed`")
+
+	for feature in FEATURES {
+		want := strings.concatenate({"import? '", feature.dir, "/", feature.dir, ".just'"}, context.allocator)
+		defer delete(want)
+		testing.expectf(
+			t,
+			strings.contains(source, want),
+			"the justfile has no `%s` line, so `odin-skel add %s` would copy files nothing runs",
+			want,
+			feature.name,
+		)
+	}
+}
+
+// The import must also survive marker stripping for both kinds - a feature applies to either shape, so
+// putting the line inside an `exe-only` or `lib-only` block would silently break one of them.
+@(test)
+test_feature_import_survives_both_kinds :: proc(t: ^testing.T) {
+	source := ""
+	for tmpl in TEMPLATES {
+		if tmpl.path == "justfile" {
+			source = tmpl.data
+			break
+		}
+	}
+	testing.expect(t, source != "", "justfile missing from TEMPLATES - run `just embed`")
+
+	for kind in ([]Project_Kind{.Exe, .Lib}) {
+		stripped := strip_marked_blocks(source, drop_names(kind))
+		defer delete(stripped)
+		for feature in FEATURES {
+			want := strings.concatenate({"import? '", feature.dir, "/", feature.dir, ".just'"}, context.allocator)
+			defer delete(want)
+			testing.expectf(
+				t,
+				strings.contains(stripped, want),
+				"the %v justfile lost the `%s` line - is it inside a kind marker block?",
+				kind,
+				want,
+			)
+		}
+	}
+}
+
+// `new` writes no feature file, whatever the kind. This is the whole promise of the mechanism: a
+// project that does not want benchmarks carries none of their bulk.
+@(test)
+test_new_skips_feature_templates :: proc(t: ^testing.T) {
+	for kind in ([]Project_Kind{.Exe, .Lib}) {
+		for tmpl in TEMPLATES {
+			if tmpl.feature == "" {
+				continue
+			}
+			// `new`'s loop conditions, asserted directly: kind is irrelevant, the feature tag decides.
+			testing.expectf(
+				t,
+				template_wanted(tmpl.kind, kind),
+				"feature file %q is also kind-restricted, which `new` would filter for the wrong reason",
+				tmpl.path,
+			)
+		}
+	}
+}
+
+// The benchmark harness is `package bench`, not `package main`, and it is not cosmetic: an executable
+// project's root is `package main`, and Odin rejects two packages sharing a name in one build with
+// "Duplicate declaration of 'package main'" before anything runs. Naming it `main` would make the
+// feature work for libraries and fail for executables.
+@(test)
+test_bench_feature_is_not_package_main :: proc(t: ^testing.T) {
+	found := 0
+	for tmpl in TEMPLATES {
+		if tmpl.feature != FEATURE_BENCH || !strings.has_suffix(tmpl.path, ".odin") {
+			continue
+		}
+		found += 1
+		testing.expectf(
+			t,
+			strings.contains(tmpl.data, "\npackage bench\n"),
+			"%q must declare `package bench` - `package main` collides with an executable project's root",
+			tmpl.path,
+		)
+	}
+	testing.expect(t, found > 0, "no bench feature sources embedded - run `just embed`")
+}
+
+// A recorded measurement is not template text. `just bench_count` writes bench/instructions.json and
+// the README says to commit it, so it can legitimately be tracked in this repository - but embedding it
+// would make `odin-skel add bench` copy this machine's instruction counts into every user project,
+// where `bench_count_check` would diff their code against this compiler on this hardware. The embed
+// generator excludes it; this is what notices if that exclusion is ever dropped.
+@(test)
+test_recorded_measurements_are_not_embedded :: proc(t: ^testing.T) {
+	for tmpl in TEMPLATES {
+		testing.expectf(
+			t,
+			path_base(tmpl.path) != "instructions.json",
+			"%q is a recorded measurement and must not be embedded - see EXCLUDED_FILES in the justfile",
+			tmpl.path,
+		)
+	}
+}

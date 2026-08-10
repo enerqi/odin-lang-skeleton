@@ -9,6 +9,54 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-10
+
+### Added
+
+- `odin-skel add <feature> [dir]` — optional features, written into a project that already exists
+  rather than scaffolded into every one. `new` never writes them. Recipes arrive through the
+  justfile's `import? '<dir>/<dir>.just'`, an optional import that is inert until the directory is
+  there, so adding a feature is a file copy and removing it is deleting the directory. See
+  tools/DESIGN.md, Decision 5.
+- `bench` feature — a benchmark harness for either project kind. Warmup, samples across an iteration
+  ramp fitted with a robust Theil-Sen line (so the per-iteration cost is the slope and the cost of
+  measuring lands in the intercept), R^2 and Tukey outlier counts, `keep`/`opaque` barriers against
+  dead-code elimination, JSON reports carrying every sample, and a Mann-Whitney U comparison against
+  a saved baseline. Adds `just bench`, `bench_build`, `bench_cmp`, `bench_lint`, `bench_save` and
+  `rerun_bench`.
+- `just bench_count` / `bench_count_check` (bench feature) — per-iteration **instruction** counts under
+  valgrind's callgrind, measured as the difference between running N and 2N iterations so that startup,
+  setup and instrumentation cancel exactly. Counts do not drift between runs, so unlike a timing
+  baseline `bench/instructions.json` is meant to be committed and can gate a merge. Requires valgrind;
+  perf cannot substitute, as GitHub-hosted runners expose no PMU.
+- `just time_release` / `just time_profiles` (executable kind) — whole-process timings via hyperfine,
+  the second comparing the release and `-no-bounds-check` binaries.
+- `doctor` now reports hyperfine and valgrind as optional tools.
+- `--exact` on the benchmark binary, matching the filter as a whole name rather than a substring.
+  `bench_count` uses it: otherwise counting a benchmark named `bench.parse` would also run
+  `bench.parse_json` and record the sum of the two.
+
+### Changed
+
+- `just ols-config` now takes its collections as arguments — `just ols-config xyz=../xyz-lib
+  abc=/opt/odin/abc` — instead of reading a `collection_name` / `collection_path` pair edited into the
+  justfile and fed by an `XYZ_HOME` env var. Those two variables are gone, and with them the last
+  `FILL IN:` in the file. Consequences:
+  - **More than one collection.** `ols.json`'s `collections` is an array and always was; the old recipe
+    could only ever write one entry into it.
+  - **Other `ols.json` settings survive.** The recipe now reads the file back and rewrites only
+    `collections`, so `enable_document_symbols`, `checker_path` and friends are no longer destroyed on
+    every regenerate. The arguments are the whole collection list, so a rerun is idempotent and there
+    is no add/remove pair of commands to keep straight. With no arguments it prints the current list.
+  - **Relative paths are documented as the better default.** OLS resolves a relative collection path
+    against the project root, so `../xyz-lib` gives an `ols.json` that is the same on every machine and
+    can be committed — the `.gitignore` entry only exists for the absolute-path case. (OLS does no
+    variable substitution in `ols.json`, which is why a recipe generates it at all; a leading `~` is
+    the one exception, and it is expanded on Linux and macOS only.)
+  - **Fixes a Windows crash.** The old recipe interpolated the path into a Python raw string, so a
+    collection path ending in a backslash (`C:\odin\libs\`) escaped the closing quote and failed with a
+    syntax error.
+
 ## [0.6.0] - 2026-08-09
 
 ### Added
@@ -537,7 +585,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.6.0...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.7.0...HEAD
+[0.7.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.0
 [0.6.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.6.0
 [0.5.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.5.0
 [0.4.4]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.4.4

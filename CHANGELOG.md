@@ -9,6 +9,23 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-08-11
+
+### Changed
+
+- justfile: the three comment blocks the README already documents at length are now summaries with a pointer rather
+  than a second copy — `linker` 33 lines to 18, the sanitizer notes 26 to 15, `time_release` 16 to 10. They restated
+  `## Choosing a linker`, the `test_sanitize` entry under `## Tasks`, and `## Timing a recipe` nearly point for point,
+  and two copies of a paragraph is one copy that goes stale unnoticed. Each block keeps what is only true at the line
+  being edited: the four legal `-linker:` values and why `ODIN_LINKER` is an environment variable rather than a recipe
+  argument (`odin` errors on a repeated flag, so a `-linker:` through `*args` would collide); the Windows ASan heap
+  blind spot, because a clean run there *misleads*; `-N`'s whitespace splitting, which bites anyone adding a pipe or a
+  quoted argument to the recipe body. The sanitizer block's warning about the deliberately missing
+  `-linker:{{linker}}` is kept in full and now says not to "fix" it — the README never covered it, and next to every
+  other build recipe the omission reads as an oversight, but restoring it produces an ASan binary that dies on startup
+  with a bare `0xc000001d`. No recipe body changed; the file is 1032 lines to 998, and the generated
+  `Just-Odin*.sublime-snippet` files follow it.
+
 ## [0.7.4] - 2026-08-11
 
 ### Changed
@@ -635,7 +652,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.7.4...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.7.5...HEAD
+[0.7.5]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.5
 [0.7.4]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.4
 [0.7.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.1
 [0.7.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.0

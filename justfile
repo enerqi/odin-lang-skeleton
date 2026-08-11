@@ -23,26 +23,13 @@ test_main_name := "test-main.exe"
 # path in *command* position ("'target' is not recognized") even quoted.
 target_path(dir, name) := join("target", dir, name)
 
-# Which linker Odin hands the object files to. `odin build -linker:` accepts exactly four values:
+# Which linker Odin hands the object files to. `-linker:` takes exactly four values: `default` (Odin
+# picks - MSVC `link.exe` on Windows), `lld`, `radlink` (Windows only, bundled with Odin, hence the
+# Windows default here) and `mold` (Linux only, not bundled). Odin has no build cache and relinks on
+# every build, so this is a per-iteration cost. `odin-skel new --linker=VALUE` rewrites the default below.
 #
-#   default   let Odin choose - MSVC `link.exe` on Windows. The portable answer.
-#   lld       LLVM's linker. Windows and Linux. NOT on a stock macOS: Odin links through clang and
-#             Apple's clang ships no lld, so it fails with "clang: error: invalid linker name in
-#             argument '-fuse-ld=lld'". That is clang rejecting it, not Odin, so unlike mold there is
-#             no "not supported on this platform" message up front.
-#   radlink   RAD Debugger's linker. Windows only, ships *with* the Odin toolchain, hence the default
-#             here. Odin has no build cache and relinks every build, so link time is a per-iteration cost.
-#   mold      Linux only, and NOT bundled - `apt install mold` (or equivalent) first.
-#
-# When `default` is the better pick: neither radlink nor mold is an *incremental* linker, while MSVC
-# `link.exe` is. With `-use-separate-modules` (implied by `-lto`), an incremental relink of one changed
-# module can beat a full link that is individually faster. Not the default shape of an Odin build though -
-# single-module builds have little for LTO to chew on, and statically linked external C libraries get none
-# regardless - so measure on your own project rather than assuming either way.
-#
-# `-lto` is a hard conflict rather than a preference: on Windows it *requires* `-linker:lld` and exits 1
-# with "-lto:thin on Windows requires -linker:lld" if anything else is pinned. The env var below gets out
-# of its way, and equally covers a machine that has mold when the project default does not assume it:
+# Override for one command without editing this file - for `-lto`, which on Windows *requires* lld, or
+# for a machine that has mold when the project default does not assume it:
 #
 # >>> exe-only
 #     ODIN_LINKER=lld just run_release -lto:thin
@@ -51,11 +38,9 @@ target_path(dir, name) := join("target", dir, name)
 #     ODIN_LINKER=lld just test -lto:thin
 # <<< lib-only
 #
-# Odin rejects a linker its platform does not support rather than quietly falling back - mold on Windows
-# exits 1 with "'mold' linker is not supported on this platform" - which is what you want from a
-# per-machine setting. The default below is what `odin-skel new --linker=<value>` rewrites. An env var
-# rather than a recipe argument because `odin` errors on a repeated flag ("Previous flag set: 'linker'"),
-# so a `-linker:` passed through a recipe's `*args` would collide with the one added below.
+# An env var rather than a recipe argument because `odin` errors on a repeated flag ("Previous flag set:
+# 'linker'"), so a `-linker:` passed through a recipe's `*args` would collide with the one added below.
+# Which value to pick, and the lld-on-macOS and incremental-linking caveats: README, "Choosing a linker".
 linker := env_var_or_default("ODIN_LINKER", if os() == "windows" { "radlink" } else { "default" })
 
 # Optional features add their recipes by shipping a `.just` file, not by editing this one.
@@ -137,32 +122,21 @@ run_release_nochecks *args: mktarget_dirs
 	odin run . -o:speed -no-bounds-check -disable-assert -no-type-assert -microarch:native -keep-executable -linker:{{linker}} -out:{{ target_path("release_nochecks", main_name) }} {{args}}
 # <<< exe-only
 
-# These notes sit outside the kind markers deliberately: `test_sanitize` below is in every project, so a
-# library would otherwise get the recipe with no explanation of its `KIND` argument.
+# Outside the kind markers on purpose: `test_sanitize` below ships in every project, so these notes must
+# not be stripped along with the exe-only `sanitize`.
 #
-# `address` (ASan) catches out-of-bounds accesses and use-after-free; `memory` catches reads of
-# uninitialized memory; `thread` catches data races. Only `address` is widely supported - `memory` and
-# `thread` need a clang-ish toolchain (not Windows/MSVC). Built with `-debug` for file/line info in the
-# reports, and to its own output name so it does not clobber the plain debug binary.
+# KIND is `address` (default, ASan), `memory` or `thread`; only `address` is widely supported. ON WINDOWS
+# `address` CATCHES STACK ERRORS BUT NOT HEAP ERRORS - Odin allocates through `HeapAlloc`, which ASan does
+# not intercept, so a clean run there says nothing about your heap. (Probed a 16-byte allocation at +16,
+# +24, +32, +64, +256: Linux reports `heap-buffer-overflow` from +24 on, Windows at none. +16 is in bounds
+# either way - the allocator hands back more than asked for.) The rest, and the Linux
+# `libclang_rt.asan.a` install: README, "Tasks".
 #
-# KNOW THIS BEFORE TRUSTING A CLEAN RUN: on Windows, `address` does not detect heap errors at all. Odin's
-# allocator calls `HeapAlloc` there (base/runtime/heap_allocator_windows.odin) instead of `malloc`, and
-# ASan's redzones come from intercepting the allocator - so it never sees the allocation. Measured by
-# writing past a 16-byte `make([]u8, 16)` at +16, +24, +32, +64, +256: Linux reports
-# `heap-buffer-overflow` from +24 on, Windows reports nothing at any offset, and at +32 the process died
-# with no ASan output at all. (+16 is in bounds either way - the allocator hands back more than asked
-# for, so any probe of your own must clear that slack first.) Stack overflows ARE caught on both, that
-# instrumentation being compiler-inserted rather than interception-based. So on Windows a clean run rules
-# out stack bugs, not heap bugs: chase a suspected heap bug on Linux, or with a tracking allocator. The
-# `interception_win: unhandled instruction` line these builds print is the same limitation announcing
-# itself, not a fault in your code.
-#
-# The sanitizer recipes deliberately omit `-linker:{{linker}}`: link speed is worth nothing on a
-# diagnostic run, and a sanitizer has to interpose on the runtime, which not every linker cooperates
-# with - `radlink` (this file's Windows default, and bundled with Odin, so it is what you get by
-# accident) links an ASan binary that dies on startup with a bare `0xc000001d` illegal-instruction
-# exception and no usable stack, while `-linker:default` runs it. Letting Odin pick keeps these recipes a
-# signal about your code rather than about the linker.
+# Both recipes deliberately omit `-linker:{{linker}}` - do not "fix" the inconsistency. A sanitizer has to
+# interpose on the runtime and not every linker cooperates: `radlink` (this file's Windows default, and
+# bundled with Odin, so it is what you get by accident) links an ASan binary that dies on startup with a
+# bare `0xc000001d` illegal-instruction exception and no usable stack, while `-linker:default` runs it.
+# Link speed is worth nothing on a diagnostic run anyway.
 
 # >>> exe-only
 # Usage:  just sanitize   or   just sanitize thread -- --my-arg
@@ -259,21 +233,13 @@ rerun_release *args:
 rerun_release_nochecks *args:
 	{{ target_path("release_nochecks", main_name) }} {{args}}
 
-# hyperfine (https://github.com/sharkdp/hyperfine) times whole *processes*: warmup runs, a configurable
-# number of timed runs, mean/stddev/min/max, outlier warnings, `--export-json`/`--export-markdown`.
-# Install it separately - `just doctor` reports whether it is there.
-#
-# Right tool for what the program costs end to end, wrong one for anything smaller: process startup was
-# ~31ms on this machine (see "Timing a recipe" in the README), which swamps everything below it. For
-# per-procedure numbers - fractions of a nanosecond, measured inside one process - add the benchmark
-# harness instead: `odin-skel add bench`.
-#
-# Deliberately over `rerun_release`'s binary rather than over `just run_release`: Odin has no build cache,
-# so timing the recipe would mostly time the compiler. Build first.
-#
-# `-N` runs the binary directly instead of through a shell, whose per-run cost hyperfine warns it cannot
-# calibrate away accurately below ~5ms - and a small Odin program is well below that. The cost of `-N`:
-# the command is split on whitespace rather than parsed, so no pipes, redirects or quoted args with spaces.
+# hyperfine (https://github.com/sharkdp/hyperfine) times whole *processes*, and is installed separately -
+# `just doctor` reports whether it is there. Over `rerun_release`'s binary rather than `just run_release`:
+# Odin has no build cache, so timing the recipe would mostly time the compiler - build first. `-N` skips
+# the shell hyperfine would otherwise spawn per run, at the cost that the command is split on whitespace
+# rather than parsed: no pipes, redirects or quoted arguments containing spaces. Process startup (~31ms
+# here) swamps anything smaller - for per-procedure numbers add the harness, `odin-skel add bench`.
+# See the README, "Timing a recipe" and "Benchmarking".
 #
 # Usage:  just time_release            time the release binary
 #         just time_release --flag=x   ... passing arguments to the program

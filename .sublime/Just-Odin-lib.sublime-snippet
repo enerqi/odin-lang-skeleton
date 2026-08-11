@@ -1,100 +1,61 @@
 <snippet>
 	<content><![CDATA[
-# `cmd.exe` for one reason: it starts in ~9ms. just launches a shell per recipe line, so startup is a
-# fixed tax on every build. Bare `<shell> exit` under hyperfine: cmd ~9ms, `nu -c` ~41ms (the original
-# default here), `powershell -NoLogo -NoProfile -Command` ~143ms (which replaced nu). Per recipe line
-# that was ~178ms under PowerShell against ~45ms under cmd - so a recipe whose entire purpose is
-# skipping the compile spent ~178ms of shell to launch a binary that prints one line.
-#
-# cmd also wins the portability argument that put PowerShell here over nu: it is on every Windows,
-# needs no install, and has no profile to make a recipe unreproducible. The cost is that it is a poor
-# language for a multi-line recipe - which does not bite, because every Windows body below is a single
-# command and anything with logic uses `[script]`.
+# `cmd.exe` starts in ~9ms and always available. just launches a shell per recipe line.
+#  - alternatives: `nu -c` ~41ms, `powershell -NoLogo -NoProfile -Command` ~143ms
+#  - cost: it is a poor language for a multi-line recipe, hence uv -> python preferred for more complex tasks
 set windows-shell := ["cmd.exe", "/c"]
 set shell := ["bash", "-c"]
 set unstable  # [script] feature - https://github.com/casey/just/issues/1479
 set lazy
 
-# `python` alone is not a reliable cross-platform lookup: scoop (Windows) installs whatever version was
-# last `scoop install`ed under the bare name `python`, with no version pin, and a bare `python3`/`python`
-# on Linux is whatever the distro shipped. `uv run -p 3.14 python` sidesteps both - uv resolves (and
-# downloads if missing) the newest 3.14 patch it knows of, the same on every platform, so uv becomes the
-# one tool these recipes depend on instead of a system python. `--no-project`: without it, `uv run` walks
-# up from cwd looking for a pyproject.toml/uv.toml to treat as the project root - none exists above this
-# repo today, but if one ever did (e.g. a stray python project two directories up), these recipes would
-# silently start syncing/using *that* project's venv and pinned version instead of the one below.
-# `--no-project` disables that discovery so the version here is the only one that applies. Recipes opt in
-# with the bare `[script]` attribute (no interpreter argument) to pick this up.
+# `python` alone is not a reliable cross-platform lookup (cf. python/python3/python3.x)
+# uv resolves/downloads on every platform and --no-project means no looking for pyproject.toml / local .venv
+# just recipes opt in with the bare `[script]` attribute (no interpreter argument)
 set script-interpreter := ["uv", "run", "--no-project", "-p", "3.14", "python"]
 
-# Set by the newest just feature used below - currently user-defined functions (1.49), for
-# `target_path`. Older features it also needs: `join()` 1.37, f-strings 1.44, `set lazy` 1.47.
-# Without this an old just reports a plain syntax error at the offending line, which reads like a
-# corrupt justfile rather than an out-of-date tool. Keep the README and `odin-skel doctor` in step.
+# Newest just feature used below is user-defined functions (1.49). Keep the README and `odin-skel doctor` in step.
 set minimum-version := "1.49.0"
 
 test_main_name := "${1:test-main.exe}"
 
 # `join`, not the `/` operator: `/` always emits a forward slash, and cmd.exe rejects a forward-slash
-# path in *command* position ("'target' is not recognized") even quoted. Odin takes either in an
-# `-out:` argument, but any recipe that invokes a built binary directly needs the native separator
-# `join` gives. bash needs no `./` prefix - a path containing a slash is already a path.
+# path in *command* position ("'target' is not recognized") even quoted.
 target_path(dir, name) := join("target", dir, name)
 
 # Which linker Odin hands the object files to. `odin build -linker:` accepts exactly four values:
 #
-#   default   let Odin choose - MSVC `link.exe` on Windows. The portable answer, and what every
-#             platform used before this line existed.
-#   lld       LLVM's linker. Windows and Linux. NOT available on a stock macOS: Odin drives the
-#             link through clang, and Apple's clang ships no lld, so it fails with
-#             "clang: error: invalid linker name in argument '-fuse-ld=lld'" unless you have
-#             installed LLVM yourself. Note this is clang rejecting it, not Odin - `-linker:` takes
-#             the value on every platform, so unlike mold there is no "not supported on this
-#             platform" message to tell you up front.
-#   radlink   RAD Debugger's linker. Windows only, and it ships *with* the Odin toolchain, so it
-#             needs no install - which is why it is the default here. Odin has no build cache and
-#             relinks on every build, so the link step is a cost you pay on each iteration.
+#   default   let Odin choose - MSVC `link.exe` on Windows. The portable answer.
+#   lld       LLVM's linker. Windows and Linux. NOT on a stock macOS: Odin links through clang and
+#             Apple's clang ships no lld, so it fails with "clang: error: invalid linker name in
+#             argument '-fuse-ld=lld'". That is clang rejecting it, not Odin, so unlike mold there is
+#             no "not supported on this platform" message up front.
+#   radlink   RAD Debugger's linker. Windows only, ships *with* the Odin toolchain, hence the default
+#             here. Odin has no build cache and relinks every build, so link time is a per-iteration cost.
 #   mold      Linux only, and NOT bundled - `apt install mold` (or equivalent) first.
 #
-# When the default is the better pick: neither radlink nor mold is an *incremental* linker, while
-# MSVC `link.exe` is. Combined with `-use-separate-modules` (and `-lto`, which implies it), an
-# incremental relink of one changed module can beat a full link that is individually faster. That
-# combination is not the default shape of an Odin build - single-module builds have little for LTO
-# to chew on, and statically linked external C libraries do not get LTO regardless - so it is worth
-# measuring on your own project rather than assuming either way.
+# When `default` is the better pick: neither radlink nor mold is an *incremental* linker, while MSVC
+# `link.exe` is. With `-use-separate-modules` (implied by `-lto`), an incremental relink of one changed
+# module can beat a full link that is individually faster. Not the default shape of an Odin build though -
+# single-module builds have little for LTO to chew on, and statically linked external C libraries get none
+# regardless - so measure on your own project rather than assuming either way.
 #
-# `-lto` is also a hard conflict rather than a preference: on Windows it *requires* `-linker:lld`
-# and exits 1 with "-lto:thin on Windows requires -linker:lld" if anything else is pinned. Use the
-# env var below to get out of the way of it:
+# `-lto` is a hard conflict rather than a preference: on Windows it *requires* `-linker:lld` and exits 1
+# with "-lto:thin on Windows requires -linker:lld" if anything else is pinned. The env var below gets out
+# of its way, and equally covers a machine that has mold when the project default does not assume it:
 #
 #     ODIN_LINKER=lld just test -lto:thin
 #
-# Odin rejects a linker its platform does not support rather than quietly falling back: asking for
-# mold on Windows exits 1 with "'mold' linker is not supported on this platform" and produces no
-# binary. That is the behaviour you want from a per-machine setting, so nothing here second-guesses
-# it.
-#
-# The default below is what `odin-skel new --linker=<value>` rewrites. The env var overrides it for
-# a single command, without editing this file - for the LTO case above, or for a machine that has
-# mold when the project default does not assume it:
-#
-#     ODIN_LINKER=lld just test
-#
-# It is an env var rather than a recipe argument because `odin` errors on a repeated flag
-# ("Previous flag set: 'linker'"), so passing `-linker:` through a recipe's `*args` would collide
-# with the one added below.
+# Odin rejects a linker its platform does not support rather than quietly falling back - mold on Windows
+# exits 1 with "'mold' linker is not supported on this platform" - which is what you want from a
+# per-machine setting. The default below is what `odin-skel new --linker=<value>` rewrites. An env var
+# rather than a recipe argument because `odin` errors on a repeated flag ("Previous flag set: 'linker'"),
+# so a `-linker:` passed through a recipe's `*args` would collide with the one added below.
 linker := env_var_or_default("ODIN_LINKER", if os() == "windows" { "radlink" } else { "default" })
 
-# Optional features add their recipes by shipping a `.just` file, not by editing this one. The `?`
-# means "import it if it is there": with the directory absent this line does nothing, `just --list`
-# shows no benchmark recipes, and nothing errors. That is what lets `odin-skel add bench` be a plain
-# file copy - no justfile to patch, no marker block to splice, nothing to make idempotent - and lets
-# `rm -rf bench/` be the uninstall.
-#
+# Optional features add their recipes by shipping a `.just` file, not by editing this one.
+# Lets `odin-skel add bench` be a plain and `rm -rf bench/` be the uninstall.
 # An imported file shares one namespace with this one, so `linker`, `target_path` and `mktarget_dirs`
 # below are all visible to it. Recipe names must not collide; the feature prefixes all of its own.
-#
-#     odin-skel add bench       adds bench/ (harness, your benchmarks, and the recipes)
 import? 'bench/bench.just'
 
 # odinfmt every odin file under this directory or subdirectories
@@ -112,16 +73,8 @@ lint *args:
 	odin check . -vet -vet-cast -strict-style -vet-tabs -no-entry-point {{args}}
 
 
-# Every recipe that produces a binary depends on this, so it runs before every build - which makes its
-# cost a tax on every iteration, and worth keeping small. odin does not create the output directory
-# (the linker fails with LNK1104), so this cannot just be dropped.
-#
-# The directories are created all at once rather than one per line because just starts a new shell per
-# recipe line, so five lines would pay for five shell launches. That was the whole cost back when
-# Windows recipes ran under PowerShell (hyperfine: ~149ms to launch, against ~40ms for the actual
-# directory creation); under cmd a launch is ~9ms, so batching saves ~36ms rather than ~600ms. Still
-# the right shape, no longer dramatic. The corollary is unchanged either way: scoping this to only the
-# one directory a given recipe needs saves ~5ms of that 40 and is not worth the complexity.
+# Every recipe that produces a binary depends on this. Odin does not create the output directory
+# One line/call keeps the cost to one shell command
 # ---
 # ensure the build artifacts top level directory exists
 [unix]
@@ -129,11 +82,7 @@ lint *args:
 	mkdir -p target/debug target/fast_debug target/release_debug target/release target/release_nochecks
 
 # `if not exist` rather than swallowing md's "already exists" with `2>nul`, so a genuine failure still
-# sets a non-zero exit.
-#
-# The loop variable is a single `%d`, NOT the `%%d` a .bat file would use: doubling is escaping for
-# batch *files*, and `cmd /c` takes a command *line*. Getting it wrong is not subtle - cmd aborts the
-# recipe with "%%d was unexpected at this time".
+# sets a non-zero exit. The loop var is a single `%d`, NOT the `%%d` that a .bat file would use for escaping
 # ---
 # ensure the build artifacts top level directory exists
 [windows]
@@ -141,48 +90,40 @@ lint *args:
 	for %d in (debug fast_debug release_debug release release_nochecks) do @if not exist target\%d md target\%d || exit /b 1
 
 
-# These notes sit outside the kind markers deliberately: they document the sanitizers themselves, and
-# `test_sanitize` below is in every project. Keeping them with `sanitize` would leave a library with a
-# recipe and no explanation of what its `KIND` argument means or why it omits `-linker:`.
+# These notes sit outside the kind markers deliberately: `test_sanitize` below is in every project, so a
+# library would otherwise get the recipe with no explanation of its `KIND` argument.
 #
 # `address` (ASan) catches out-of-bounds accesses and use-after-free; `memory` catches reads of
 # uninitialized memory; `thread` catches data races. Only `address` is widely supported - `memory` and
-# `thread` need a clang-ish toolchain and are unavailable on some platforms (notably Windows/MSVC).
-# Built with `-debug` so reports carry file/line info, and to its own output name so it does not clobber
-# the plain debug binary.
+# `thread` need a clang-ish toolchain (not Windows/MSVC). Built with `-debug` for file/line info in the
+# reports, and to its own output name so it does not clobber the plain debug binary.
 #
-# KNOW THIS BEFORE TRUSTING A CLEAN RUN: on Windows, `address` does not detect heap errors at all.
-# Odin's allocator calls `HeapAlloc` there (base/runtime/heap_allocator_windows.odin) instead of
-# `malloc`, and ASan's redzones come from intercepting the allocator - so it never sees the allocation
-# and has nothing to guard. Measured by writing one byte past a 16-byte `make([]u8, 16)` at +16, +24,
-# +32, +64 and +256: Linux reports `heap-buffer-overflow` from +24 on, Windows reports nothing at any
-# offset, and at +32 the process died with no ASan output whatsoever. Stack overflows are caught on
-# both, because that instrumentation is compiler-inserted rather than interception-based.
-#
-# (+16 is not a bug: the allocator hands back more than the 16 bytes asked for, so a write there is
-# still in bounds. Any probe of your own needs to clear that slack before it means anything.)
-#
-# The practical reading: on Windows a clean sanitizer run rules out stack bugs, not heap bugs. Chase
-# a suspected heap bug on Linux, or with a tracking allocator, which does not depend on ASan. The
-# `interception_win: unhandled instruction` line these builds print is this same limitation announcing
+# KNOW THIS BEFORE TRUSTING A CLEAN RUN: on Windows, `address` does not detect heap errors at all. Odin's
+# allocator calls `HeapAlloc` there (base/runtime/heap_allocator_windows.odin) instead of `malloc`, and
+# ASan's redzones come from intercepting the allocator - so it never sees the allocation. Measured by
+# writing past a 16-byte `make([]u8, 16)` at +16, +24, +32, +64, +256: Linux reports
+# `heap-buffer-overflow` from +24 on, Windows reports nothing at any offset, and at +32 the process died
+# with no ASan output at all. (+16 is in bounds either way - the allocator hands back more than asked
+# for, so any probe of your own must clear that slack first.) Stack overflows ARE caught on both, that
+# instrumentation being compiler-inserted rather than interception-based. So on Windows a clean run rules
+# out stack bugs, not heap bugs: chase a suspected heap bug on Linux, or with a tracking allocator. The
+# `interception_win: unhandled instruction` line these builds print is the same limitation announcing
 # itself, not a fault in your code.
 #
 # The sanitizer recipes deliberately omit `-linker:{{linker}}`: link speed is worth nothing on a
-# diagnostic run, and pinning it here actively broke things. A sanitizer has to interpose on the
-# runtime, which not every linker cooperates with - `radlink` (this file's Windows default, and bundled
-# with Odin, so it is what you get by accident) links an ASan test binary that dies on startup with a
-# bare `0xc000001d` illegal-instruction exception and no usable stack, while `-linker:default` runs it.
-# Letting Odin pick keeps these recipes a signal about your code rather than about the linker.
+# diagnostic run, and a sanitizer has to interpose on the runtime, which not every linker cooperates
+# with - `radlink` (this file's Windows default, and bundled with Odin, so it is what you get by
+# accident) links an ASan binary that dies on startup with a bare `0xc000001d` illegal-instruction
+# exception and no usable stack, while `-linker:default` runs it. Letting Odin pick keeps these recipes a
+# signal about your code rather than about the linker.
 
 # There is no binary of this project to run, so the inner loop is a type check plus the tests, and the
 # examples are what prove the package is usable from outside it.
 
-# What `just run` is to a program: the fast "does it still compile" loop. Deliberately without the vet
-# and style flags `lint` carries - those are worth a separate, slower pass rather than noise between
-# an edit and knowing whether it type checks.
-#
-# `odin check .` covers the root package, which for a single-package library is all of it; once there
-# are subpackages, an aggregator example is what sweeps them (see the README).
+# What `just run` is to a program: the fast "does it still compile" loop. Deliberately without the vet and
+# style flags `lint` carries - those are worth a separate, slower pass rather than noise between an edit
+# and knowing whether it type checks. `odin check .` covers the root package, which for a single-package
+# library is all of it; once there are subpackages, an aggregator example sweeps them (see the README).
 # ---
 # type check the library
 check *args:
@@ -196,9 +137,8 @@ check *args:
 example name *args: mktarget_dirs
 	odin run examples/{{name}}.odin -file -debug -microarch:native -linker:{{linker}} -out:{{ target_path("debug", f"example-{{name}}.exe") }} {{args}}
 
-# An example is documentation, and documentation stops being true the moment the API moves under it.
-# This is the cheap guard against that. Written as a `[script]` because just has no loop and cmd.exe is
-# a poor place to write one.
+# An example is documentation, and documentation stops being true the moment the API moves under it. This
+# is the cheap guard against that. A `[script]` because just has no loop and cmd.exe is a poor place for one.
 # ---
 # type check every example in examples/
 [script]
@@ -210,14 +150,12 @@ examples:
 		sys.exit("no examples found in examples/")
 
 	for path in files:
-		# flush=True because python fully buffers stdout when it is a pipe (CI logs, `just examples > f`).
-		# Without it the compiler's stderr arrives first and the progress lines land afterwards in a
-		# block, which loses the one thing they are for - saying which example broke.
+		# flush=True because python fully buffers stdout when it is a pipe (CI logs, `just examples > f`),
+		# which would land these lines after the compiler's stderr and lose which example broke.
 		print("checking " + path, flush=True)
-		# `-no-entry-point` so an aggregator example works: a `package all` file that only carries
-		# `@(require) import ".."` lines is how a library with subpackages type checks its whole tree
-		# (see the README), and it has no `main`. Harmless for the ordinary `package main` examples,
-		# which are not being asked to produce a binary here either.
+		# `-no-entry-point` so an aggregator example works: a `package all` file of `@(require) import ".."`
+		# lines has no `main`, and is how a library with subpackages type checks its whole tree (README).
+		# Harmless for the ordinary `package main` examples, not being asked for a binary here either.
 		result = subprocess.run(
 			["odin", "check", path, "-file", "-no-entry-point", "-vet", "-vet-cast", "-strict-style", "-vet-tabs"]
 		)
@@ -245,10 +183,9 @@ test_sanitize kind="address" *args: mktarget_dirs
 test *args: mktarget_dirs
 	odin test . -debug -file -microarch:native -linker:{{linker}} -out:{{ target_path("debug", test_main_name) }} {{args}}
 
-# Filtering is a `core:testing` define rather than a compiler flag - there is no `-test-name:`, and a
-# stale spelling of one fails with `Unknown flag: 'test-name'` before anything builds. NAME takes a
-# comma-separated list and the package prefix is optional, so `pkg.my_test`, `my_test` and
-# `one,two` all work:
+# Filtering is a `core:testing` define, not a compiler flag - there is no `-test-name:`, and a stale
+# spelling of one fails with `Unknown flag: 'test-name'` before anything builds. NAME takes a comma-separated
+# list and the package prefix is optional, so `pkg.my_test`, `my_test` and `one,two` all work:
 #     just test1 my_test
 # ---
 # run one named test (comma-separated for several)
@@ -261,10 +198,6 @@ clean:
 	rm -rf target
 	just mktarget_dirs
 
-# cmd's equivalent of `rm -rf` is `rmdir /s /q`. Guarded by `if exist` because rmdir prints "The
-# system cannot find the file specified" and exits non-zero on a missing path, which would fail the
-# recipe on an already-clean tree.
-# ---
 # simple delete of all debug databases and executables in the target directory
 [windows]
 clean:
@@ -317,20 +250,19 @@ install-sublime:
 
 
 
-# Resolves extra collection imports (`import "xyz:pkg"`). Only needed when you pull packages from a
-# directory outside this project. Each argument is `name=path`, and the arguments are the whole
-# collection list - a rerun replaces it, and every other setting already in ols.json is left alone:
+# Resolves extra collection imports (`import "xyz:pkg"`), needed only for packages outside this project.
+# Each argument is `name=path` and the arguments are the whole collection list - a rerun replaces it, and
+# every other setting already in ols.json is left alone. No arguments prints what is configured.
 #     just ols-config xyz=../xyz-lib abc=/opt/odin/abc
-# Run it with no arguments to print what is currently configured.
 #
-# ols resolves a relative path against this project's root, so a collection kept as a sibling
-# checkout gives an ols.json that is identical on every machine - drop the `ols.json` line from
-# .gitignore and commit it. An absolute path is machine-specific, which is why the file is ignored by
-# default. A leading `~` expands on Linux and macOS only; on Windows write the path out in full.
+# ols resolves a relative path against this project's root, so a collection kept as a sibling checkout
+# gives an ols.json identical on every machine - drop the `ols.json` line from .gitignore and commit it.
+# An absolute path is machine-specific, which is why the file is ignored by default. A leading `~` expands
+# on Linux and macOS only; on Windows write the path out in full.
 #
-# A path containing a space cannot be passed here: just joins a variadic parameter's arguments with
-# spaces before the recipe body sees them, so no amount of quoting survives the trip. Edit ols.json
-# by hand for that case - the recipe reads the file back, so it is not an either/or.
+# A path containing a space cannot be passed here: just joins a variadic parameter's arguments with spaces
+# before the body sees them, so no quoting survives. Edit ols.json by hand for that - the recipe reads the
+# file back, so it is not an either/or.
 # ---
 # SKELETON: (re)generate ols.json so the Odin language server resolves extra collections
 [script]
@@ -339,10 +271,10 @@ ols-config *pairs:
 
 	USAGE = "usage: just ols-config name=path [name=path ...]   e.g. just ols-config xyz=../xyz-lib"
 
-	# str.split, not shlex.split: shlex in its default POSIX mode treats a backslash as an escape and
-	# would eat every separator in a Windows path (C:\odin\libs -> C:odinlibs). The space before the
-	# closing quote is load-bearing, not a typo - a path ending in a backslash would otherwise escape
-	# the quote and leave the string unterminated. str.split() discards it again as trailing space.
+	# str.split, not shlex.split: shlex's default POSIX mode treats a backslash as an escape and would eat
+	# every separator in a Windows path (C:\odin\libs -> C:odinlibs). The space before the closing quote is
+	# load-bearing - a path ending in a backslash would otherwise escape the quote and leave the string
+	# unterminated. str.split() discards it again as trailing space.
 	args = r'''{{pairs}} '''.split()
 
 	# Read before write. ols.json also holds editor settings (enable_document_symbols, checker_path,

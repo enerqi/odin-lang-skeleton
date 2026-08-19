@@ -17,6 +17,10 @@ Tool_Check :: struct {
 	// exists, so the captured output is usage text and must not be shown as if it were a version.
 	presence_only: bool,
 	why:           string, // what breaks without it, shown only when it is missing
+	// A fact about the tool's role, shown whether or not it was found. `why` cannot carry these: a
+	// bare `ok hyperfine 1.20.0` answers "is it installed" but not "does this toolchain need it",
+	// and for odinfmt the answer is no either way.
+	note:          string,
 	install:       string,
 }
 
@@ -49,17 +53,14 @@ CHECKS :: []Tool_Check {
 		// odinfmt has no version flag (`[path] [-config] [-stdin] [-w]`), so a bare invocation is
 		// the probe: it prints usage and exits non-zero, which still proves it is installed.
 		//
-		// This probes PATH, which is NOT what `just format` runs: the justfile pins an ols release and
-		// formats with the copy under `~/.odin-tools/ols/<tag>/`, because two odinfmt builds format the
-		// same source differently and a version cannot be interrogated out of a binary. So a machine
-		// reported as missing it here still formats correctly. Reported anyway: a PATH copy is what an
-		// editor or a hand-run `odinfmt` picks up, and knowing a second one is in front of the pinned
-		// one is worth more than a silent pass.
+		// Probes PATH, which is NOT what `just format` runs - see `note`, and the justfile's `ols_tag`.
+		// Reported anyway: a PATH copy is what an editor or a hand-run `odinfmt` picks up, and knowing a
+		// second formatter sits in front of the pinned one beats a silent pass.
 		probe_args    = {"odinfmt"},
 		required      = false,
 		presence_only = true,
-		why           = "not needed by `just format` - it uses the pinned copy from `just fetch-ols`; only a hand-run odinfmt uses PATH",
-		install       = "`just fetch-ols`, or build from the ols repo: https://github.com/DanielGavin/ols",
+		note          = "`just format` fetches and runs its own pinned copy either way; PATH matters only for a hand-run odinfmt",
+		install       = "`just fetch-ols` (or build from the ols repo: https://github.com/DanielGavin/ols)",
 	},
 	{
 		name = "git",
@@ -86,7 +87,7 @@ CHECKS :: []Tool_Check {
 		name = "hyperfine",
 		probe_args = {"hyperfine", "--version"},
 		required = false,
-		why = "only `just time_release` / `just time_profiles` need it - whole-process timings",
+		note = "only `just time_release` / `just time_profiles` need it - whole-process timings",
 		install = "https://github.com/sharkdp/hyperfine#installation",
 	},
 	{
@@ -118,21 +119,26 @@ doctor :: proc() -> int {
 		}
 
 		label := check.required ? "required" : "optional"
+		note := check.note == "" ? "" : fmt.tprintf(" - %s", check.note)
+		// `(optional)` on a tool that WAS found, too. This report exists to say what the toolchain
+		// needs, and a line that only ever reads `ok` cannot answer "can I ignore this one".
+		tail := check.required ? note : fmt.tprintf(" (%s)%s", label, note)
 
 		if !result.found {
+			reason := check.why == "" ? "" : fmt.tprintf(" - %s", check.why)
 			if check.required {
 				failures += 1
-				fmt.eprintfln("MISSING  %-9s (%s) - %s", check.name, label, check.why)
+				fmt.eprintfln("MISSING  %-9s (%s)%s%s", check.name, label, reason, note)
 				fmt.eprintfln("         install: %s", check.install)
 			} else {
-				fmt.printfln("absent   %-9s (%s) - %s", check.name, label, check.why)
+				fmt.printfln("absent   %-9s (%s)%s%s", check.name, label, reason, note)
 				fmt.printfln("         install: %s", check.install)
 			}
 			continue
 		}
 
 		if check.presence_only {
-			fmt.printfln("ok       %-9s present", check.name)
+			fmt.printfln("ok       %-9s present%s", check.name, tail)
 			continue
 		}
 
@@ -143,7 +149,7 @@ doctor :: proc() -> int {
 			if !ok {
 				// Present and runnable but unparseable: warn, do not fail. A version-banner change
 				// upstream should not brick the tool.
-				fmt.printfln("ok?      %-9s %s (could not parse a version)", check.name, banner)
+				fmt.printfln("ok?      %-9s %s (could not parse a version)%s", check.name, banner, tail)
 				continue
 			}
 			req := check.min_version
@@ -155,7 +161,7 @@ doctor :: proc() -> int {
 			}
 		}
 
-		fmt.printfln("ok       %-9s %s", check.name, banner)
+		fmt.printfln("ok       %-9s %s%s", check.name, banner, tail)
 	}
 
 	if failures > 0 {

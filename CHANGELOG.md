@@ -9,6 +9,16 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+### Changed
+
+- `odin-skel doctor` now says an optional tool is optional when it is *present*, not only when it is missing: a line
+  reading `ok hyperfine 1.20.0` answers "is it installed" but not "does this toolchain need it". Every non-required
+  tool carries `(optional)` in both states, and a new `note` field holds the facts that are true either way - where
+  `why` only ever answered "what breaks if this is absent". odinfmt gets the one that matters most: `just format`
+  fetches and runs its own pinned copy regardless, so PATH matters only for a hand-run odinfmt, and a machine reported
+  as missing it still formats correctly. Its check stays, because a PATH copy is what an editor picks up and knowing a
+  second formatter sits in front of the pinned one beats a silent pass.
+
 ## [0.8.1] - 2026-08-19
 
 ### Fixed

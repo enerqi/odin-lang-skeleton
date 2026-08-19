@@ -1,293 +1,293 @@
 name: ci
 
 on:
-	push:
-	pull_request:
+  push:
+  pull_request:
 
 # A second push to the same branch makes the in-flight run pointless.
 concurrency:
-	group: ci-${{ github.ref }}
-	cancel-in-progress: true
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-	# The skeleton uses the core:os process API that arrived when os2 was merged into core:os, so it
-	# needs a recent compiler. `nightly` is what this has been verified against; switch to `latest`
-	# once a tagged Odin release is known to carry that rewrite.
-	ODIN_RELEASE: nightly
+  # The skeleton uses the core:os process API that arrived when os2 was merged into core:os, so it
+  # needs a recent compiler. `nightly` is what this has been verified against; switch to `latest`
+  # once a tagged Odin release is known to carry that rewrite.
+  ODIN_RELEASE: nightly
 
 jobs:
-	# The drift guards are the point of this job: templates.odin and the .sublime-snippet files are
-	# generated copies of other files in the repo, and nothing but a check like this notices when a
-	# commit updates one side and not the other.
-	generated-files:
-		name: generated files are current
-		runs-on: ubuntu-latest
-		steps:
-			- uses: actions/checkout@v7
-			- uses: extractions/setup-just@v4
-			# embed-check / snippets-check are `[script]` recipes: their body runs on `uv run -p 3.14 python`
-			# (see the justfile's `set script-interpreter`), not a bare `python` - which GitHub's runners do
-			# ship, but not pinned to any particular version. uv is not preinstalled, unlike python, so it
-			# needs its own setup step; it then downloads the pinned 3.14 itself on first use, no separate
-			# python setup needed.
-			- uses: astral-sh/setup-uv@v9.0.0
-			- name: embed-check
-				run: just embed-check
-			- name: snippets-check
-				run: just snippets-check
+  # The drift guards are the point of this job: templates.odin and the .sublime-snippet files are
+  # generated copies of other files in the repo, and nothing but a check like this notices when a
+  # commit updates one side and not the other.
+  generated-files:
+    name: generated files are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: extractions/setup-just@v4
+      # embed-check / snippets-check are `[script]` recipes: their body runs on `uv run -p 3.14 python`
+      # (see the justfile's `set script-interpreter`), not a bare `python` - which GitHub's runners do
+      # ship, but not pinned to any particular version. uv is not preinstalled, unlike python, so it
+      # needs its own setup step; it then downloads the pinned 3.14 itself on first use, no separate
+      # python setup needed.
+      - uses: astral-sh/setup-uv@v9.0.0
+      - name: embed-check
+        run: just embed-check
+      - name: snippets-check
+        run: just snippets-check
 
-	check:
-		name: check (${{ matrix.os }})
-		strategy:
-			fail-fast: false
-			matrix:
-				os: [ubuntu-latest, windows-latest, macos-latest]
-		runs-on: ${{ matrix.os }}
-		steps:
-			- uses: actions/checkout@v7
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
 
-			- uses: laytan/setup-odin@v2
-				with:
-					token: ${{ secrets.GITHUB_TOKEN }}
-					release: ${{ env.ODIN_RELEASE }}
+      - uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release: ${{ env.ODIN_RELEASE }}
 
-			- uses: extractions/setup-just@v4
+      - uses: extractions/setup-just@v4
 
-			# For the bench feature's `bench_count`, which counts instructions under callgrind. Linux only:
-			# valgrind does not support Windows at all, and the macOS port lags the OS version by enough that
-			# it is not worth the runner minutes. The e2e steps below skip the counting half where it is
-			# absent, so the other two platforms still cover everything else.
-			#
-			# Note this is what perf would have been used for, and cannot: GitHub's runners expose no PMU to
-			# the guest, so `perf stat -e instructions:u` reports the event as unsupported. callgrind
-			# simulates rather than sampling, so it needs no hardware counter.
-			- name: install valgrind
-				if: matrix.os == 'ubuntu-latest'
-				run: sudo apt-get update && sudo apt-get install -y valgrind
+      # For the bench feature's `bench_count`, which counts instructions under callgrind. Linux only:
+      # valgrind does not support Windows at all, and the macOS port lags the OS version by enough that
+      # it is not worth the runner minutes. The e2e steps below skip the counting half where it is
+      # absent, so the other two platforms still cover everything else.
+      #
+      # Note this is what perf would have been used for, and cannot: GitHub's runners expose no PMU to
+      # the guest, so `perf stat -e instructions:u` reports the event as unsupported. callgrind
+      # simulates rather than sampling, so it needs no hardware counter.
+      - name: install valgrind
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y valgrind
 
-			# `new` (used below to scaffold a generated project) is a `[script]` recipe running on
-			# `uv run -p 3.14 python` - see the note on the `astral-sh/setup-uv` step in the
-			# `generated-files` job above. `lint`/`test`/`build_skel` above do not need this; only `new` does.
-			- uses: astral-sh/setup-uv@v9.0.0
+      # `new` (used below to scaffold a generated project) is a `[script]` recipe running on
+      # `uv run -p 3.14 python` - see the note on the `astral-sh/setup-uv` step in the
+      # `generated-files` job above. `lint`/`test`/`build_skel` above do not need this; only `new` does.
+      - uses: astral-sh/setup-uv@v9.0.0
 
-			# `odin check .` covers only the root package, so the template and the tool are linted
-			# separately. Neither needs odinfmt. `just format` is not run here because it would rewrite the
-			# tree rather than check it; `just fetch-ols` plus `git diff --exit-code` would be the gate.
-			- name: lint template
-				run: just lint
+      # `odin check .` covers only the root package, so the template and the tool are linted
+      # separately. Neither needs odinfmt. `just format` is not run here because it would rewrite the
+      # tree rather than check it; `just fetch-ols` plus `git diff --exit-code` would be the gate.
+      - name: lint template
+        run: just lint
 
-			- name: lint odin-skel
-				run: just lint_skel
+      - name: lint odin-skel
+        run: just lint_skel
 
-			- name: test template
-				run: just test
+      - name: test template
+        run: just test
 
-			- name: test odin-skel
-				run: just test_skel
+      - name: test odin-skel
+        run: just test_skel
 
-			# The lib template is a second template, and Decision 3's amendment turns on it being live code
-			# rather than text: these two steps are what make that true on every commit.
-			- name: lint lib template
-				run: just lint_lib_template
+      # The lib template is a second template, and Decision 3's amendment turns on it being live code
+      # rather than text: these two steps are what make that true on every commit.
+      - name: lint lib template
+        run: just lint_lib_template
 
-			- name: test lib template
-				run: just test_lib_template
+      - name: test lib template
+        run: just test_lib_template
 
-			# bench/ is an optional feature, so it is not covered by `lint` (root package only) or by either
-			# template's lint recipe. Its own recipe arrives with it, via the justfile's `import?`.
-			- name: lint bench feature
-				run: just bench_lint
+      # bench/ is an optional feature, so it is not covered by `lint` (root package only) or by either
+      # template's lint recipe. Its own recipe arrives with it, via the justfile's `import?`.
+      - name: lint bench feature
+        run: just bench_lint
 
-			- name: build odin-skel
-				run: just build_skel
+      - name: build odin-skel
+        run: just build_skel
 
-			# The end-to-end case: scaffold a project from the embedded templates and confirm the result
-			# is a working Odin project on this platform. Catches path handling and line-ending mistakes
-			# that unit tests on the helpers alone would miss.
-			- name: scaffold and build a generated project
-				shell: bash
-				run: |
-					set -euo pipefail
-					# --offline: `new` otherwise ends by calling the release API and downloading the pinned
-					# ols. Both only warn on failure, so this is about CI time and rate limits, not redness.
-					just new --offline "$RUNNER_TEMP/generated" ciproj
-					cd "$RUNNER_TEMP/generated"
-					just lint
-					just run
-					test -f .sublime/ciproj.sublime-project
-					test ! -e tools
-					test ! -e .github
-					# Optional features are never scaffolded, only added. The justfile's `import?` ships anyway
-					# and must be inert: `just --list` has to work with the directory absent, which is the whole
-					# reason the import is optional.
-					test ! -e bench
-					just --list > /dev/null
-					grep -q "import? 'bench/bench.just'" justfile
-					# ... and `add` puts it there afterwards. `package bench` rather than `package main` is what
-					# makes this work at all for an executable, whose root is already `package main`.
-					"$GITHUB_WORKSPACE/target/debug/odin-skel.exe" add bench .
-					grep -q "^package bench$" bench/runner.odin
-					just bench_lint
-					just bench --samples=5 --warmup=1 --sample-time=1
-					# The counting path needs valgrind, which only the Linux job installs. Both halves are worth
-					# exercising: --fixed-iters runs the loop with no clock involved, which nothing else covers.
-					if command -v valgrind > /dev/null; then
-						just bench_count 8
-						test -f bench/instructions.json
-						just bench_count_check 8
-					fi
-					grep -q "Copyright (c)" LICENSE
-					# `! grep ...` would be exempt from `set -e`, so the leak checks are written as explicit
-					# failures instead of relying on the exit status of a negated command.
-					for leaked in build_skel lint_skel test_skel _embed skeleton-only; do
-						if grep -q "$leaked" justfile; then
-							echo "skeleton-only content '$leaked' leaked into the generated justfile" >&2
-							exit 1
-						fi
-					done
-					# .gitattributes is stripped too: its linguist rules name tools/, which is never copied.
-					for leaked in linguist-generated tools/skel skeleton-only; do
-						if grep -q "$leaked" .gitattributes; then
-							echo "skeleton-only content '$leaked' leaked into .gitattributes" >&2
-							exit 1
-						fi
-					done
-					grep -q "text=auto eol=lf" .gitattributes
-					# linguist-vendored is not skeleton-only - the editor files are copied, so it must survive.
-					grep -q "linguist-vendored=true" .gitattributes
-					# No --linker was passed, so the per-OS default must come through untouched. Anchored on
-					# ODIN_LINKER: other variables (exe_ext, ols_plat, home_dir) are per-OS too, and a bare
-					# `if os() ==` would pass here whether or not the linker default survived.
-					grep -q 'ODIN_LINKER", if os() == "windows"' justfile
+      # The end-to-end case: scaffold a project from the embedded templates and confirm the result
+      # is a working Odin project on this platform. Catches path handling and line-ending mistakes
+      # that unit tests on the helpers alone would miss.
+      - name: scaffold and build a generated project
+        shell: bash
+        run: |
+          set -euo pipefail
+          # --offline: `new` otherwise ends by calling the release API and downloading the pinned
+          # ols. Both only warn on failure, so this is about CI time and rate limits, not redness.
+          just new --offline "$RUNNER_TEMP/generated" ciproj
+          cd "$RUNNER_TEMP/generated"
+          just lint
+          just run
+          test -f .sublime/ciproj.sublime-project
+          test ! -e tools
+          test ! -e .github
+          # Optional features are never scaffolded, only added. The justfile's `import?` ships anyway
+          # and must be inert: `just --list` has to work with the directory absent, which is the whole
+          # reason the import is optional.
+          test ! -e bench
+          just --list > /dev/null
+          grep -q "import? 'bench/bench.just'" justfile
+          # ... and `add` puts it there afterwards. `package bench` rather than `package main` is what
+          # makes this work at all for an executable, whose root is already `package main`.
+          "$GITHUB_WORKSPACE/target/debug/odin-skel.exe" add bench .
+          grep -q "^package bench$" bench/runner.odin
+          just bench_lint
+          just bench --samples=5 --warmup=1 --sample-time=1
+          # The counting path needs valgrind, which only the Linux job installs. Both halves are worth
+          # exercising: --fixed-iters runs the loop with no clock involved, which nothing else covers.
+          if command -v valgrind > /dev/null; then
+            just bench_count 8
+            test -f bench/instructions.json
+            just bench_count_check 8
+          fi
+          grep -q "Copyright (c)" LICENSE
+          # `! grep ...` would be exempt from `set -e`, so the leak checks are written as explicit
+          # failures instead of relying on the exit status of a negated command.
+          for leaked in build_skel lint_skel test_skel _embed skeleton-only; do
+            if grep -q "$leaked" justfile; then
+              echo "skeleton-only content '$leaked' leaked into the generated justfile" >&2
+              exit 1
+            fi
+          done
+          # .gitattributes is stripped too: its linguist rules name tools/, which is never copied.
+          for leaked in linguist-generated tools/skel skeleton-only; do
+            if grep -q "$leaked" .gitattributes; then
+              echo "skeleton-only content '$leaked' leaked into .gitattributes" >&2
+              exit 1
+            fi
+          done
+          grep -q "text=auto eol=lf" .gitattributes
+          # linguist-vendored is not skeleton-only - the editor files are copied, so it must survive.
+          grep -q "linguist-vendored=true" .gitattributes
+          # No --linker was passed, so the per-OS default must come through untouched. Anchored on
+          # ODIN_LINKER: other variables (exe_ext, ols_plat, home_dir) are per-OS too, and a bare
+          # `if os() ==` would pass here whether or not the linker default survived.
+          grep -q 'ODIN_LINKER", if os() == "windows"' justfile
 
-			# The library kind needs its own end-to-end run for the same reason the executable one does: the
-			# unit tests prove the transformations in isolation, but only a real scaffold proves the result
-			# is a working Odin package on this platform. The example is the part worth building - its `".."`
-			# import depth is the thing about this layout that is easy to get wrong, and `-file` mode is where
-			# it differs from every other Odin library.
-			- name: scaffold and build a generated library
-				shell: bash
-				run: |
-					set -euo pipefail
-					just new --offline "$RUNNER_TEMP/generated-lib" odin-cilib --lib
-					cd "$RUNNER_TEMP/generated-lib"
-					# The directory is the package: the placeholder name must be gone, and the package clause
-					# must carry the derived identifier rather than the hyphenated project name.
-					test -f odin_cilib.odin
-					test -f odin_cilib_test.odin
-					test -f examples/basic.odin
-					test ! -e mylib
-					test ! -e main.odin
-					grep -q "^package odin_cilib$" odin_cilib.odin
-					# examples/ is `package main` and is not directly under mylib/, so the package rewrite
-					# must have left it alone.
-					grep -q "^package main$" examples/basic.odin
-					just lint
-					just check
-					just test
-					just example basic
-					just examples
-					# Same optional feature, same two steps, for the other project kind.
-					test ! -e bench
-					grep -q "import? 'bench/bench.just'" justfile
-					"$GITHUB_WORKSPACE/target/debug/odin-skel.exe" add bench .
-					just bench_lint
-					just bench --samples=5 --warmup=1 --sample-time=1
-					# The build ladder has nothing to build here, so its recipes must not have come through.
-					# Anchored to the start of a line: `test_main_name` contains `main_name`, and the shared
-					# comments mention the build recipes by name.
-					for leaked in '^run_debug ' '^rerun_debug ' '^diagnose ' '^main_name :='; do
-						if grep -q "$leaked" justfile; then
-							echo "executable-only content '$leaked' leaked into the library justfile" >&2
-							exit 1
-						fi
-					done
-					# ... and the library's own recipes must have.
-					for wanted in '^check \*args' '^example name' '^doc \*args'; do
-						if ! grep -q "$wanted" justfile; then
-							echo "library recipe '$wanted' missing from the generated justfile" >&2
-							exit 1
-						fi
-					done
-					# The Sublime build system is deliberately NOT stripped: `just install-sublime` puts it in
-					# Sublime's global Packages/User, where it serves every Odin project on the machine, so it
-					# has to keep both kinds' variants. Assert that rather than let a future strip look tidy.
-					build_system=.sublime/OdinJustTarget.sublime-build
-					grep -q "project - just check" "$build_system"
-					grep -q "project - just run (debug)" "$build_system"
+      # The library kind needs its own end-to-end run for the same reason the executable one does: the
+      # unit tests prove the transformations in isolation, but only a real scaffold proves the result
+      # is a working Odin package on this platform. The example is the part worth building - its `".."`
+      # import depth is the thing about this layout that is easy to get wrong, and `-file` mode is where
+      # it differs from every other Odin library.
+      - name: scaffold and build a generated library
+        shell: bash
+        run: |
+          set -euo pipefail
+          just new --offline "$RUNNER_TEMP/generated-lib" odin-cilib --lib
+          cd "$RUNNER_TEMP/generated-lib"
+          # The directory is the package: the placeholder name must be gone, and the package clause
+          # must carry the derived identifier rather than the hyphenated project name.
+          test -f odin_cilib.odin
+          test -f odin_cilib_test.odin
+          test -f examples/basic.odin
+          test ! -e mylib
+          test ! -e main.odin
+          grep -q "^package odin_cilib$" odin_cilib.odin
+          # examples/ is `package main` and is not directly under mylib/, so the package rewrite
+          # must have left it alone.
+          grep -q "^package main$" examples/basic.odin
+          just lint
+          just check
+          just test
+          just example basic
+          just examples
+          # Same optional feature, same two steps, for the other project kind.
+          test ! -e bench
+          grep -q "import? 'bench/bench.just'" justfile
+          "$GITHUB_WORKSPACE/target/debug/odin-skel.exe" add bench .
+          just bench_lint
+          just bench --samples=5 --warmup=1 --sample-time=1
+          # The build ladder has nothing to build here, so its recipes must not have come through.
+          # Anchored to the start of a line: `test_main_name` contains `main_name`, and the shared
+          # comments mention the build recipes by name.
+          for leaked in '^run_debug ' '^rerun_debug ' '^diagnose ' '^main_name :='; do
+            if grep -q "$leaked" justfile; then
+              echo "executable-only content '$leaked' leaked into the library justfile" >&2
+              exit 1
+            fi
+          done
+          # ... and the library's own recipes must have.
+          for wanted in '^check \*args' '^example name' '^doc \*args'; do
+            if ! grep -q "$wanted" justfile; then
+              echo "library recipe '$wanted' missing from the generated justfile" >&2
+              exit 1
+            fi
+          done
+          # The Sublime build system is deliberately NOT stripped: `just install-sublime` puts it in
+          # Sublime's global Packages/User, where it serves every Odin project on the machine, so it
+          # has to keep both kinds' variants. Assert that rather than let a future strip look tidy.
+          build_system=.sublime/OdinJustTarget.sublime-build
+          grep -q "project - just check" "$build_system"
+          grep -q "project - just run (debug)" "$build_system"
 
-			# The `--linker` path needs its own end-to-end run: the unit tests prove the justfile line is
-			# rewritten, but only an actual build proves the value survives into `odin` and links.
-			#
-			# There is no single value valid on all three runners, so the pin is per-OS. lld covers
-			# Windows and Linux; macOS gets `default` because Odin drives the link through clang and
-			# Apple's clang ships no lld - `-fuse-ld=lld` is rejected with "invalid linker name". That
-			# still exercises the whole path (rewrite -> justfile -> odin -> link), just without proving
-			# a non-default linker on that one runner, which no available value could do anyway: radlink
-			# is Windows-only and mold is Linux-only.
-			- name: scaffold with a pinned linker and build it
-				shell: bash
-				run: |
-					set -euo pipefail
-					if [ "$RUNNER_OS" = "macOS" ]; then
-						pinned=default
-					else
-						pinned=lld
-					fi
-					echo "pinning linker: $pinned"
-					# --offline matters more here than elsewhere: `bump-ols` would rewrite ols_tag in the
-					# very justfile the greps below read.
-					just new --offline "$RUNNER_TEMP/pinned" pinnedproj "--linker=$pinned"
-					cd "$RUNNER_TEMP/pinned"
-					grep -q "linker := env_var_or_default(\"ODIN_LINKER\", \"$pinned\")" justfile
-					if grep -q 'ODIN_LINKER", if os() ==' justfile; then
-						echo "--linker did not replace the per-OS default" >&2
-						exit 1
-					fi
-					just run
-					# The env var has to win over whatever the project pinned, or there is no escape hatch
-					# for the cases the pin gets wrong (-lto on Windows requires lld; a machine without mold).
-					# Checked by resolving the variable rather than by building: precedence is the thing under
-					# test, and every concrete value is unavailable on at least one of these runners.
-					got="$(ODIN_LINKER=radlink just --evaluate linker)"
-					if [ "$got" != "radlink" ]; then
-						echo "ODIN_LINKER did not override the pinned linker (resolved: $got)" >&2
-						exit 1
-					fi
+      # The `--linker` path needs its own end-to-end run: the unit tests prove the justfile line is
+      # rewritten, but only an actual build proves the value survives into `odin` and links.
+      #
+      # There is no single value valid on all three runners, so the pin is per-OS. lld covers
+      # Windows and Linux; macOS gets `default` because Odin drives the link through clang and
+      # Apple's clang ships no lld - `-fuse-ld=lld` is rejected with "invalid linker name". That
+      # still exercises the whole path (rewrite -> justfile -> odin -> link), just without proving
+      # a non-default linker on that one runner, which no available value could do anyway: radlink
+      # is Windows-only and mold is Linux-only.
+      - name: scaffold with a pinned linker and build it
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            pinned=default
+          else
+            pinned=lld
+          fi
+          echo "pinning linker: $pinned"
+          # --offline matters more here than elsewhere: `bump-ols` would rewrite ols_tag in the
+          # very justfile the greps below read.
+          just new --offline "$RUNNER_TEMP/pinned" pinnedproj "--linker=$pinned"
+          cd "$RUNNER_TEMP/pinned"
+          grep -q "linker := env_var_or_default(\"ODIN_LINKER\", \"$pinned\")" justfile
+          if grep -q 'ODIN_LINKER", if os() ==' justfile; then
+            echo "--linker did not replace the per-OS default" >&2
+            exit 1
+          fi
+          just run
+          # The env var has to win over whatever the project pinned, or there is no escape hatch
+          # for the cases the pin gets wrong (-lto on Windows requires lld; a machine without mold).
+          # Checked by resolving the variable rather than by building: precedence is the thing under
+          # test, and every concrete value is unavailable on at least one of these runners.
+          got="$(ODIN_LINKER=radlink just --evaluate linker)"
+          if [ "$got" != "radlink" ]; then
+            echo "ODIN_LINKER did not override the pinned linker (resolved: $got)" >&2
+            exit 1
+          fi
 
-			# The output name carries `.exe` on every platform, matching the skeleton's own `main.exe`
-			# convention, so one invocation covers all runners.
-			- name: doctor
-				run: ./target/debug/odin-skel.exe doctor
+      # The output name carries `.exe` on every platform, matching the skeleton's own `main.exe`
+      # convention, so one invocation covers all runners.
+      - name: doctor
+        run: ./target/debug/odin-skel.exe doctor
 
-			# The skeleton ships five sanitizer recipes and the README sells them, but nothing until now
-			# proved they still compile, link and run - a broken flag would only be discovered by whoever
-			# first reached for one.
-			#
-			# `address` only. `memory` and `thread` need a clang-ish toolchain and are unavailable on
-			# Windows/MSVC (see the notes on the `sanitize` recipe).
-			#
-			# Windows is included deliberately: it was ubuntu-only, and that is exactly why a Windows-only
-			# sanitizer break went unnoticed - `test_sanitize` pinned `-linker:radlink`, whose ASan output
-			# died on startup with a bare `0xc000001d`. Ubuntu could never have caught it, because there
-			# the linker resolves to `default` regardless.
-			#
-			# macOS stays excluded: ASan there wants the Xcode runtime rather than the LLVM one setup-odin
-			# provides, so it would be platform noise rather than signal. Drop the condition entirely if
-			# that ever changes.
-			#
-			# Deliberately the last steps in the job: these depend on an ASan runtime being present
-			# alongside the toolchain, which is the one thing here outside the repository's control. If
-			# that ever breaks, it fails on its own rather than cutting short the scaffold and doctor
-			# checks above, which are what actually gate a release.
-			#
-			# Both halves are run because they exercise different code: `sanitize` covers main.odin's
-			# operational setup - the tracking allocator and logger, allocating and freeing under ASan -
-			# while `test_sanitize` covers the `odin test` harness.
-			- name: sanitizer build (address)
-				if: matrix.os != 'macos-latest'
-				run: just sanitize address
+      # The skeleton ships five sanitizer recipes and the README sells them, but nothing until now
+      # proved they still compile, link and run - a broken flag would only be discovered by whoever
+      # first reached for one.
+      #
+      # `address` only. `memory` and `thread` need a clang-ish toolchain and are unavailable on
+      # Windows/MSVC (see the notes on the `sanitize` recipe).
+      #
+      # Windows is included deliberately: it was ubuntu-only, and that is exactly why a Windows-only
+      # sanitizer break went unnoticed - `test_sanitize` pinned `-linker:radlink`, whose ASan output
+      # died on startup with a bare `0xc000001d`. Ubuntu could never have caught it, because there
+      # the linker resolves to `default` regardless.
+      #
+      # macOS stays excluded: ASan there wants the Xcode runtime rather than the LLVM one setup-odin
+      # provides, so it would be platform noise rather than signal. Drop the condition entirely if
+      # that ever changes.
+      #
+      # Deliberately the last steps in the job: these depend on an ASan runtime being present
+      # alongside the toolchain, which is the one thing here outside the repository's control. If
+      # that ever breaks, it fails on its own rather than cutting short the scaffold and doctor
+      # checks above, which are what actually gate a release.
+      #
+      # Both halves are run because they exercise different code: `sanitize` covers main.odin's
+      # operational setup - the tracking allocator and logger, allocating and freeing under ASan -
+      # while `test_sanitize` covers the `odin test` harness.
+      - name: sanitizer build (address)
+        if: matrix.os != 'macos-latest'
+        run: just sanitize address
 
-			- name: sanitizer tests (address)
-				if: matrix.os != 'macos-latest'
-				run: just test_sanitize address
+      - name: sanitizer tests (address)
+        if: matrix.os != 'macos-latest'
+        run: just test_sanitize address

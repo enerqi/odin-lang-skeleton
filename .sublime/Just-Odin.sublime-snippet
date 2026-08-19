@@ -336,10 +336,16 @@ rerun_release_nochecks *args:
 # hyperfine (https://github.com/sharkdp/hyperfine) times whole *processes*, and is installed separately -
 # `just doctor` reports whether it is there. Over `rerun_release`'s binary rather than `just run_release`:
 # Odin has no build cache, so timing the recipe would mostly time the compiler - build first. `-N` skips
-# the shell hyperfine would otherwise spawn per run, at the cost that the command is split on whitespace
-# rather than parsed: no pipes, redirects or quoted arguments containing spaces. Process startup (~31ms
-# here) swamps anything smaller - for per-procedure numbers add the harness, `odin-skel add bench`.
+# the shell hyperfine would otherwise spawn per run, at the cost that hyperfine splits the command
+# itself: no pipes, redirects or quoted arguments containing spaces. Process startup (~31ms here)
+# swamps anything smaller - for per-procedure numbers add the harness, `odin-skel add bench`.
 # See the README, "Timing a recipe" and "Benchmarking".
+#
+# `replace` back to forward slashes, unlike every other use of `target_path` here. Under `-N` the
+# command is parsed by hyperfine, whose splitter treats `\` as an escape, so a Windows path arrives as
+# `targetreleasemain.exe` and fails with a bare "program not found" - with the binary sitting right
+# there. Recipes that put the path in *command* position keep the native separators, because that is
+# the case cmd.exe rejects a forward slash in.
 #
 # Usage:  just time_release            time the release binary
 #         just time_release --flag=x   ... passing arguments to the program
@@ -347,15 +353,16 @@ rerun_release_nochecks *args:
 # time the release binary end to end with hyperfine (needs a prior run_release/build)
 [group('perf')]
 time_release *args:
-	hyperfine -N --warmup 3 "{{ target_path("release", main_name) }} {{args}}"
+	hyperfine -N --warmup 3 "{{ replace(target_path("release", main_name), "\\", "/") }} {{args}}"
 
 # A/B two build profiles in one run - hyperfine prints the ratio between them, which is the number worth
-# knowing about `-no-bounds-check`. Times both binaries, so needs a prior `run_release` AND `run_release_nochecks`.
+# knowing about `-no-bounds-check`. Times both binaries, so needs a prior `run_release` AND
+# `run_release_nochecks`. Forward slashes for the same reason as `time_release` above.
 # ---
 # compare the release and nochecks binaries with hyperfine
 [group('perf')]
 time_profiles *args:
-	hyperfine -N --warmup 3 "{{ target_path("release", main_name) }} {{args}}" "{{ target_path("release_nochecks", main_name) }} {{args}}"
+	hyperfine -N --warmup 3 "{{ replace(target_path("release", main_name), "\\", "/") }} {{args}}" "{{ replace(target_path("release_nochecks", main_name), "\\", "/") }} {{args}}"
 
 # run all tests
 [group('test')]

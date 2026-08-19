@@ -9,6 +9,18 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-08-19
+
+### Fixed
+
+- justfile: `time_release` and `time_profiles` were broken on Windows and always had been - `hyperfine -N: program not
+  found`, with the binary sitting right where the message named it. Under `-N` hyperfine splits the command itself,
+  and its splitter treats `\` as an escape, so `target\release\main.exe` reached `CreateProcess` as
+  `targetreleasemain.exe`. The two hyperfine recipes now `replace` the separators back to forward slashes; every other
+  use of `target_path` keeps the native ones, because *command* position is the case cmd.exe rejects a forward slash
+  in. Dropping `-N` would also have worked and is what the error nudges you towards, at the cost of timing a shell
+  start per run - which is why `-N` is there.
+
 ## [0.8.0] - 2026-08-19
 
 ### Added
@@ -768,7 +780,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.8.0...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.8.1...HEAD
+[0.8.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.1
 [0.8.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.0
 [0.8.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.0
 [0.7.5]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.5

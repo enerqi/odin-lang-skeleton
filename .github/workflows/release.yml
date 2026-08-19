@@ -61,8 +61,7 @@ jobs:
             asset: odin-skel-macos-x86_64.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v4
 
       # `changelog_section` (used by preflight below and again in the publish job) is a `[script]`

@@ -21,9 +21,9 @@ main_program :: proc() -> (exit_code: int) { 	// consider moving this to a diffe
 
 
 main :: proc() { 	// Operational setup before calling `main_program`
-	// deferred first so it runs last - os.exit terminates immediately, skipping any teardown below it
 	exit_code: int
-	defer os.exit(exit_code)
+	defer os.exit(exit_code) // deferred first so it runs last
+	defer restore_console_codepage() // see CONSOLE_UTF8
 
 	// (1) Profiler setup
 	when SPALL_ENABLE {
@@ -65,9 +65,59 @@ ________________________________________________________________________________
 	  it the trace still prints, as bare `0x...` addresses
 	- Build with `-define:TRACKING_ALLOCATOR=off|basic|backtrace` to choose how allocations are
 	  tracked. Defaults to `basic` in a `-debug` build and `off` otherwise (see below)
+	- Build with `-define:CONSOLE_UTF8=false` to leave the Windows console codepage alone. On by
+	  default on Windows only, where it is what makes non-ASCII output legible (see below)
 ___________________________________________________________________________________________________________________
 */
 SPALL_ENABLE :: #config(SPALL_ENABLE, ${3:false})
+
+/*
+Whether to put the Windows console into UTF-8 for the duration of the process.
+
+`fmt` emits UTF-8 bytes and `core:os` hands them to `WriteFile` unconverted, so a console left on the
+OEM codepage decodes them one byte at a time: `859.7µs` prints as `859.7┬Ás`. Nothing to fix on the
+POSIX side, hence the platform-shaped default.
+
+`@(init)` rather than a step in `main`, because `odin test` builds get their entry point from
+`core:testing` and never call our `main` - and the test runner's timing summary is the output that
+shows the mojibake most often.
+
+The codepage belongs to the console rather than the process, so `main` puts it back on the way out -
+otherwise every run leaves the shell it was launched from on a codepage it did not ask for. A `test`
+build cannot: `core:testing` ends through `os.exit`, which reaches no `@(fini)` and no defer, so a
+test run does leave the console on UTF-8.
+*/
+CONSOLE_UTF8 :: #config(CONSOLE_UTF8, ODIN_OS == .Windows)
+
+when CONSOLE_UTF8 && ODIN_OS == .Windows {
+	// `.ACP` is 0, which is what `GetConsoleOutputCP` returns on failure - stdout being a pipe rather
+	// than a console. Nothing was changed in that case, so there is nothing to put back.
+	@(private = "file")
+	console_codepage_before: win.CODEPAGE
+	@(private = "file")
+	console_input_codepage_before: win.CODEPAGE
+
+	@(init)
+	@(cold)
+	set_console_utf8 :: proc "contextless" () {
+		console_codepage_before = win.GetConsoleOutputCP()
+		console_input_codepage_before = win.GetConsoleCP()
+		win.SetConsoleOutputCP(.UTF8)
+		win.SetConsoleCP(.UTF8) // input as well, so non-ASCII typed or piped into the program decodes
+	}
+
+	@(cold)
+	restore_console_codepage :: proc "contextless" () {
+		if console_codepage_before != .ACP {
+			win.SetConsoleOutputCP(console_codepage_before)
+		}
+		if console_input_codepage_before != .ACP {
+			win.SetConsoleCP(console_input_codepage_before)
+		}
+	}
+} else {
+	restore_console_codepage :: proc "contextless" () {}
+}
 
 /*
 How allocations are tracked. One setting with three states rather than two booleans, because two

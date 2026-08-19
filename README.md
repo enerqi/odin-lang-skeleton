@@ -604,6 +604,15 @@ reproduces optimized.
 trace to `trace.spall`, viewable in the browser. Off by default and adds a couple of seconds to the
 run, so it is a switch you flip for one profiling session rather than leave on.
 
+**`-define:CONSOLE_UTF8=false`** — leave the Windows console codepage alone. On by default on
+Windows and a no-op everywhere else. `fmt` writes UTF-8 bytes and `core:os` hands them to `WriteFile`
+unconverted, so a console still on the OEM codepage decodes them a byte at a time and `Finished 19
+tests in 859.7µs` prints as `859.7┬Ás`. It is an `@(init)` proc rather than a step in `main`, so
+`odin test` builds get it too — they take their entry point from `core:testing` and never call `main`,
+and the runner's timing summary is where the mojibake usually shows up. The codepage belongs to the
+console rather than the process, so `main` restores the previous one on the way out; a test run cannot,
+because `core:testing` ends through `os.exit` and reaches no defer, and so leaves the console on UTF-8.
+
 Backtraces on asserts and segfaults need no define — they are on by default and cost nothing until
 something actually fails. Set `ODIN_BACKTRACE=0` to silence them for a run. Symbol names and line
 numbers come from the debug info, so a `-debug` build gives a readable trace where a release build

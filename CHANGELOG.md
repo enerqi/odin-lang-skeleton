@@ -9,6 +9,19 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-19
+
+### Added
+
+- `-define:CONSOLE_UTF8` (default: on for Windows, off elsewhere) sets the Windows console to codepage 65001 at
+  startup. `fmt` writes UTF-8 and `core:os` passes it to `WriteFile` unconverted, so an OEM-codepage console decoded
+  it a byte at a time - `Finished 19 tests in 859.7µs` read as `859.7┬Ás`. It runs from an `@(init)` proc, not from
+  `main`, because `odin test` builds take their entry point from `core:testing` and never call `main` - and the test
+  runner's timing line is where the broken output was most visible. The codepage is console state rather than process
+  state, so `main` restores the previous one through a defer registered *after* `defer os.exit(exit_code)` - defers
+  are LIFO, so it runs first. A test build cannot restore it: `core:testing` ends through `os.exit`, which reaches
+  neither a defer nor an `@(fini)`, so `just test` leaves the console on UTF-8.
+
 ## [0.8.3] - 2026-08-19
 
 ### Changed
@@ -802,7 +815,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.8.3...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.9.0...HEAD
+[0.9.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.9.0
 [0.8.3]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.3
 [0.8.2]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.2
 [0.8.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.1

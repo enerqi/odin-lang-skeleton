@@ -171,7 +171,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Needed for CHANGELOG.md - this job had nothing checked out before.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v4
 
       # `changelog_section` below is a `[script]` recipe running on `uv run -p 3.14 python` - see the

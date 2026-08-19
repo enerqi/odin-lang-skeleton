@@ -3,15 +3,28 @@ package skel
 import "core:fmt"
 import "core:strings"
 
+// How badly the toolchain needs a tool. Only `.Required` affects the exit code; the difference
+// between the other two is the word the report prints, and that word is the point. `uv` is not
+// optional the way `hyperfine` is - nothing forces you to time a binary, while `just format` cannot
+// run at all without uv, because it goes through a `[script]` recipe to fetch the pinned odinfmt -
+// but nor does the project fail to build without it, so failing `doctor` over it would be wrong too.
+Need :: enum {
+	Required,
+	Recommended,
+	Optional,
+}
+
+NEED_LABEL :: [Need]string {
+	.Required    = "required",
+	.Recommended = "recommended",
+	.Optional    = "optional",
+}
+
 // A tool the skeleton expects to find, and how badly it is needed.
-//
-// `required` tools make `doctor` exit non-zero: without them the core workflow does not run.
-// Everything else is reported but tolerated, because only some recipes need it - a project that
-// never runs `just format` does not need odinfmt installed.
 Tool_Check :: struct {
 	name:          string,
 	probe_args:    []string,
-	required:      bool,
+	need:          Need,
 	min_version:   [3]int, // {0,0,0} means "any version is fine"
 	// Some tools have no version flag at all (odinfmt). For those we only care that the executable
 	// exists, so the captured output is usage text and must not be shown as if it were a version.
@@ -28,14 +41,14 @@ CHECKS :: []Tool_Check {
 	{
 		name = "odin",
 		probe_args = {"odin", "version"},
-		required = true,
+		need = .Required,
 		why = "the compiler - nothing builds without it",
 		install = "https://odin-lang.org/docs/install/",
 	},
 	{
 		name        = "just",
 		probe_args  = {"just", "--version"},
-		required    = true,
+		need        = .Required,
 		// Must match the justfile's own `set minimum-version`, which is the real gate - it fires on
 		// every `just` invocation, while this only fires when someone runs `doctor`. The duplication
 		// buys a better first-run experience: doctor names the tool, why it is needed and where to get
@@ -57,7 +70,7 @@ CHECKS :: []Tool_Check {
 		// Reported anyway: a PATH copy is what an editor or a hand-run `odinfmt` picks up, and knowing a
 		// second formatter sits in front of the pinned one beats a silent pass.
 		probe_args    = {"odinfmt"},
-		required      = false,
+		need          = .Optional,
 		presence_only = true,
 		note          = "`just format` fetches and runs its own pinned copy either way; PATH matters only for a hand-run odinfmt",
 		install       = "`just fetch-ols` (or build from the ols repo: https://github.com/DanielGavin/ols)",
@@ -65,14 +78,14 @@ CHECKS :: []Tool_Check {
 	{
 		name = "git",
 		probe_args = {"git", "--version"},
-		required = false,
+		need = .Optional,
 		why = "needed by `just new` and by update checks",
 		install = "https://git-scm.com/downloads",
 	},
 	{
 		name       = "uv",
 		probe_args = {"uv", "--version"},
-		required   = false,
+		need       = .Recommended,
 		// `install-sublime`, `sublime-build-init` and `ols-config` are `[script]` recipes that run on
 		// `uv run -p 3.14 python` (see the justfile's `set script-interpreter`) rather than a bare
 		// `python`, so a version-pinned interpreter downloads itself instead of depending on whatever
@@ -80,20 +93,20 @@ CHECKS :: []Tool_Check {
 		// Deliberately not a recipe list: this one binary scaffolds both project kinds, and the
 		// `[script]` recipes differ between them - `examples` exists only in a library, the editor-setup
 		// ones in both.
-		why        = "runs the justfile's `[script]` recipes - `fetch-ols`, which `just format` depends on, editor setup everywhere, `examples` in a library - without a system python",
+		note       = "`just format` needs it (the pinned odinfmt is fetched by a `[script]` recipe), as do editor setup everywhere and `examples` in a library",
 		install    = "https://docs.astral.sh/uv/getting-started/installation/",
 	},
 	{
 		name = "hyperfine",
 		probe_args = {"hyperfine", "--version"},
-		required = false,
+		need = .Optional,
 		note = "only `just time_release` / `just time_profiles` need it - whole-process timings",
 		install = "https://github.com/sharkdp/hyperfine#installation",
 	},
 	{
 		name       = "valgrind",
 		probe_args = {"valgrind", "--version"},
-		required   = false,
+		need       = .Optional,
 		// Listed even though most projects never add the bench feature: it is the one tool here whose
 		// absence is not obvious from the error. `just bench_count` fails at the point of use with a
 		// message naming it, and doctor is where somebody looks before that happens. Not available on
@@ -106,8 +119,9 @@ CHECKS :: []Tool_Check {
 /*
 Report on the toolchain.
 
-Exits non-zero when a required tool is missing or too old, so it is usable as a CI gate and as a
-precondition for `new` later. Optional tools never affect the exit code.
+Exits non-zero when a `.Required` tool is missing or too old, so it is usable as a CI gate and as a
+precondition for `new` later. Nothing else affects the exit code - a `.Recommended` tool is reported
+with what needs it and left to the reader.
 */
 doctor :: proc() -> int {
 	failures := 0
@@ -118,15 +132,17 @@ doctor :: proc() -> int {
 			delete(result.output)
 		}
 
-		label := check.required ? "required" : "optional"
+		labels := NEED_LABEL
+		label := labels[check.need]
 		note := check.note == "" ? "" : fmt.tprintf(" - %s", check.note)
-		// `(optional)` on a tool that WAS found, too. This report exists to say what the toolchain
-		// needs, and a line that only ever reads `ok` cannot answer "can I ignore this one".
-		tail := check.required ? note : fmt.tprintf(" (%s)%s", label, note)
+		// The label goes on a found tool too, for everything but a required one: this report exists to
+		// say what the toolchain needs, and a line that only ever reads `ok` cannot answer "can I skip
+		// installing this".
+		tail := check.need == .Required ? note : fmt.tprintf(" (%s)%s", label, note)
 
 		if !result.found {
 			reason := check.why == "" ? "" : fmt.tprintf(" - %s", check.why)
-			if check.required {
+			if check.need == .Required {
 				failures += 1
 				fmt.eprintfln("MISSING  %-9s (%s)%s%s", check.name, label, reason, note)
 				fmt.eprintfln("         install: %s", check.install)

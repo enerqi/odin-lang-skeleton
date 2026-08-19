@@ -115,7 +115,7 @@ Verify what you downloaded against `SHA256SUMS` on the release page if you would
 Then:
 
 ```
-odin-skel doctor      # check odin / just / odinfmt / git / uv are present and new enough
+odin-skel doctor      # check odin / just / odinfmt / git / uv / hyperfine, and say which are optional
 odin-skel new ../my-project
 odin-skel help        # full usage
 ```

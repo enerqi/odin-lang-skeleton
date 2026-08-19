@@ -25,14 +25,17 @@ bench_name := "bench.exe"
 # every run pays a full rebuild before it measures anything.
 # ---
 # run the benchmarks, optimized.  just bench [NAME] [--samples=N ...]
+[group('perf')]
 bench *args: mktarget_dirs
 	odin run bench -o:speed -microarch:native -keep-executable -linker:{{linker}} -out:{{ target_path("release", bench_name) }} -- {{args}}
 
 # build the benchmarks without running them
+[group('perf')]
 bench_build *args: mktarget_dirs
 	odin build bench -o:speed -microarch:native -linker:{{linker}} -out:{{ target_path("release", bench_name) }} {{args}}
 
 # re-run the last built benchmark binary WITHOUT recompiling. Requires a prior `bench`/`bench_build`.
+[group('perf')]
 rerun_bench *args:
 	{{ target_path("release", bench_name) }} {{args}}
 
@@ -41,6 +44,7 @@ rerun_bench *args:
 # `main` and is meant to.
 # ---
 # type check and vet the benchmarks
+[group('perf')]
 bench_lint *args:
 	odin check bench -vet -vet-cast -strict-style -vet-tabs {{args}}
 
@@ -49,6 +53,7 @@ bench_lint *args:
 # Record one before you start optimizing, then `just bench_cmp` as you go.
 # ---
 # record the current numbers as the baseline to compare against
+[group('perf')]
 bench_save *args: mktarget_dirs
 	odin run bench -o:speed -microarch:native -keep-executable -linker:{{linker}} -out:{{ target_path("release", bench_name) }} -- --json={{ target_path("release", "bench-baseline.json") }} {{args}}
 
@@ -57,6 +62,7 @@ bench_save *args: mktarget_dirs
 # anything else, and the test cannot tell that from a real regression.
 # ---
 # compare the current numbers against the saved baseline
+[group('perf')]
 bench_cmp *args: mktarget_dirs
 	odin run bench -o:speed -microarch:native -keep-executable -linker:{{linker}} -out:{{ target_path("release", bench_name) }} -- --baseline={{ target_path("release", "bench-baseline.json") }} --json={{ target_path("release", "bench-latest.json") }} {{args}}
 
@@ -64,9 +70,11 @@ bench_cmp *args: mktarget_dirs
 # Instruction counts, not wall time. Requires valgrind (Linux/macOS; `apt install valgrind`).
 # ---
 # count instructions per iteration and record bench/instructions.json
+[group('perf')]
 bench_count iters="200": (_bench_count "write" iters)
 
 # compare instruction counts against the recorded bench/instructions.json
+[group('perf')]
 bench_count_check iters="200": (_bench_count "check" iters)
 
 # Why this exists next to `bench_cmp`, which already answers "did it get slower":

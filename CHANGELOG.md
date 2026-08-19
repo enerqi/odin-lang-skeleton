@@ -9,6 +9,17 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+### Changed
+
+- justfile: every recipe now carries a `[group('...')]` attribute, so `just --list` prints them under `build`,
+  `docs`, `editor`, `housekeeping`, `perf`, `qa`, `skeleton` and `test` headings instead of one alphabetical
+  run of ~50 entries where `bench_cmp` sat between `build_skel_release` and `changelog_section`. The grouping is the
+  only thing that changed — no recipe body, name, dependency or doc comment moved. `bench/bench.just` files its
+  recipes under `perf` next to `time_release`/`time_profiles`, which keeps the feature a pure file copy: an imported
+  justfile shares the importer's namespace, and a group name needs no declaration to be used. Scaffolded projects
+  inherit it — a `--lib` project's `build` group empties out entirely, and an executable project shows no `docs` group
+  at all, because the kind markers strip those recipes before the groups are read.
+
 ## [0.7.5] - 2026-08-11
 
 ### Changed

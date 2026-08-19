@@ -44,7 +44,12 @@ linker := env_var_or_default("ODIN_LINKER", if os() == "windows" { "radlink" } e
 # below are all visible to it. Recipe names must not collide; the feature prefixes all of its own.
 import? 'bench/bench.just'
 
+# Every recipe carries a `[group('...')]` so `just --list` stays readable as the file grows - an
+# ungrouped one lists on its own above the groups, so group any recipe you add. `just --groups` prints
+# the names. bench/bench.just files its recipes under `perf` alongside the hyperfine ones.
+
 # odinfmt every odin file under this directory or subdirectories
+[group('qa')]
 format:
 	odinfmt -w .
 
@@ -55,6 +60,7 @@ format:
 # Accepts extra args like `-show-timings` as needed.
 # ---
 # lint checks for style and potential bugs. No code generation
+[group('qa')]
 lint *args:
 	odin check . -vet -vet-cast -strict-style -vet-tabs -no-entry-point {{args}}
 
@@ -63,6 +69,7 @@ lint *args:
 # One line/call keeps the cost to one shell command
 # ---
 # ensure the build artifacts top level directory exists
+[group('housekeeping')]
 [unix]
 @mktarget_dirs:
 	mkdir -p target/debug target/fast_debug target/release_debug target/release target/release_nochecks
@@ -71,6 +78,7 @@ lint *args:
 # sets a non-zero exit. The loop var is a single `%d`, NOT the `%%d` that a .bat file would use for escaping
 # ---
 # ensure the build artifacts top level directory exists
+[group('housekeeping')]
 [windows]
 @mktarget_dirs:
 	for %d in (debug fast_debug release_debug release release_nochecks) do @if not exist target\%d md target\%d || exit /b 1
@@ -79,6 +87,7 @@ lint *args:
 # (-keep-executable so `rerun_debug` can skip recompiling)
 # ---
 # run with debug build
+[group('build')]
 run_debug *args: mktarget_dirs
 	odin run . -debug -microarch:native -keep-executable -linker:{{linker}} -out:{{ target_path("debug", main_name) }} {{args}}
 
@@ -89,6 +98,7 @@ alias run := run_debug
 # (-keep-executable so `rerun_fast_debug` can skip recompiling)
 # ---
 # run with debug info and light optimizations
+[group('build')]
 run_fast_debug *args: mktarget_dirs
 	odin run . -debug -o:minimal -microarch:native -keep-executable -linker:{{linker}} -out:{{ target_path("fast_debug", main_name) }} {{args}}
 
@@ -97,10 +107,12 @@ run_fast_debug *args: mktarget_dirs
 # (-keep-executable so `rerun_release_debug` can skip recompiling)
 # ---
 # run with full optimizations AND debug info
+[group('build')]
 run_release_debug *args: mktarget_dirs
 	odin run . -debug -o:speed -microarch:native -keep-executable -linker:{{linker}} -out:{{ target_path("release_debug", main_name) }} {{args}}
 
 # run with optimizations (-keep-executable so `rerun_release` can skip recompiling)
+[group('build')]
 run_release *args: mktarget_dirs
 	odin run . -o:speed -microarch:native -keep-executable -linker:{{linker}} -out:{{ target_path("release", main_name) }} {{args}}
 
@@ -112,6 +124,7 @@ run_release *args: mktarget_dirs
 # (-keep-executable so `rerun_release_nochecks` can skip recompiling)
 # ---
 # run with optimizations and ALL runtime safety checks removed
+[group('build')]
 run_release_nochecks *args: mktarget_dirs
 	odin run . -o:speed -no-bounds-check -disable-assert -no-type-assert -microarch:native -keep-executable -linker:{{linker}} -out:{{ target_path("release_nochecks", main_name) }} {{args}}
 
@@ -134,6 +147,7 @@ run_release_nochecks *args: mktarget_dirs
 # Usage:  just sanitize   or   just sanitize thread -- --my-arg
 # ---
 # run a debug build under a sanitizer (address | memory | thread)
+[group('test')]
 sanitize kind="address" *args: mktarget_dirs
 	odin run . -debug -sanitize:{{kind}} -out:{{ target_path("debug", f"sanitize-{{kind}}-{{main_name}}") }} {{args}}
 
@@ -141,30 +155,36 @@ sanitize kind="address" *args: mktarget_dirs
 # Usage:  just test_sanitize   or   just test_sanitize thread
 # ---
 # run the tests under a sanitizer (address | memory | thread)
+[group('test')]
 test_sanitize kind="address" *args: mktarget_dirs
 	odin test . -debug -file -sanitize:{{kind}} -out:{{ target_path("debug", f"sanitize-{{kind}}-{{test_main_name}}") }} {{args}}
 
 # Odin has no build cache, so a plain `run` always rebuilds. Requires a prior `run_debug`/`run` build.
 # ---
 # re-run the last debug binary WITHOUT recompiling
+[group('build')]
 rerun_debug *args:
 	{{ target_path("debug", main_name) }} {{args}}
 
 alias rerun := rerun_debug
 
 # re-run the last fast_debug binary without recompiling. Requires a prior `run_fast_debug` build.
+[group('build')]
 rerun_fast_debug *args:
 	{{ target_path("fast_debug", main_name) }} {{args}}
 
 # re-run the last release_debug binary without recompiling. Requires a prior `run_release_debug` build.
+[group('build')]
 rerun_release_debug *args:
 	{{ target_path("release_debug", main_name) }} {{args}}
 
 # re-run the last release binary without recompiling. Requires a prior `run_release` build.
+[group('build')]
 rerun_release *args:
 	{{ target_path("release", main_name) }} {{args}}
 
 # re-run the last nochecks binary without recompiling. Requires a prior `run_release_nochecks` build.
+[group('build')]
 rerun_release_nochecks *args:
 	{{ target_path("release_nochecks", main_name) }} {{args}}
 
@@ -180,6 +200,7 @@ rerun_release_nochecks *args:
 #         just time_release --flag=x   ... passing arguments to the program
 # ---
 # time the release binary end to end with hyperfine (needs a prior run_release/build)
+[group('perf')]
 time_release *args:
 	hyperfine -N --warmup 3 "{{ target_path("release", main_name) }} {{args}}"
 
@@ -187,10 +208,12 @@ time_release *args:
 # knowing about `-no-bounds-check`. Times both binaries, so needs a prior `run_release` AND `run_release_nochecks`.
 # ---
 # compare the release and nochecks binaries with hyperfine
+[group('perf')]
 time_profiles *args:
 	hyperfine -N --warmup 3 "{{ target_path("release", main_name) }} {{args}}" "{{ target_path("release_nochecks", main_name) }} {{args}}"
 
 # run all tests
+[group('test')]
 test *args: mktarget_dirs
 	odin test . -debug -file -microarch:native -linker:{{linker}} -out:{{ target_path("debug", test_main_name) }} {{args}}
 
@@ -200,22 +223,26 @@ test *args: mktarget_dirs
 #     just test1 my_test
 # ---
 # run one named test (comma-separated for several)
+[group('test')]
 test1 name *args: mktarget_dirs
 	odin test . -debug -file -microarch:native -define:ODIN_TEST_NAMES={{name}} -linker:{{linker}} -out:{{ target_path("debug", test_main_name) }} {{args}}
 
 # simple delete of all debug databases and executables in the target directory
+[group('housekeeping')]
 [unix]
 clean:
 	rm -rf target
 	just mktarget_dirs
 
 # simple delete of all debug databases and executables in the target directory
+[group('housekeeping')]
 [windows]
 clean:
 	if exist target rmdir /s /q target
 	just mktarget_dirs
 
 # build with some verbose diagnostics
+[group('build')]
 diagnose *args: mktarget_dirs
 	odin build . -debug -microarch:native -show-more-timings -show-debug-messages -show-timings -linker:{{linker}} -out:{{ target_path("debug", main_name) }} {{args}}
 
@@ -225,6 +252,7 @@ diagnose *args: mktarget_dirs
 # env var if your setup is non-standard.
 # ---
 # install the editor snippets + build systems into Sublime Text's global `Packages/User` directory
+[group('editor')]
 [script]
 install-sublime:
 	import os, sys, shutil
@@ -279,6 +307,7 @@ install-sublime:
 # file back, so it is not an either/or.
 # ---
 # SKELETON: (re)generate ols.json so the Odin language server resolves extra collections
+[group('editor')]
 [script]
 ols-config *pairs:
 	import json, os, re, sys

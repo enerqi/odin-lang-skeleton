@@ -37,6 +37,9 @@ Commands:
       --pkg=<name>    The library's package name. Defaults to the project name with -, . and
                       spaces turned into underscores, since a directory name like "odin-mylib" is
                       not a legal package clause. Ignored without --lib.
+      --offline       Skip the ols release check and tool install that normally finish a scaffold.
+                      Without it, new runs the project's own bump-ols and fetch-ols recipes so it
+                      starts on the current odinfmt; either failing is a warning, not an error.
       --linker=<v>    Pin the generated justfile's linker for every platform, where <v> is one of
                       default, lld, radlink or mold. Omit it to keep the skeleton's per-OS default:
                       radlink on Windows (it ships with the Odin toolchain), "default" elsewhere.
@@ -132,11 +135,16 @@ run :: proc() -> int {
 		// than a silent fall back to the derived name - somebody who typed the flag meant to choose.
 		pkg_given := false
 		kind := Project_Kind.Exe
+		offline := false
 		for i := 1; i < len(args); i += 1 {
 			arg := args[i]
 
 			if arg == "--lib" {
 				kind = .Lib
+				continue
+			}
+			if arg == "--offline" {
+				offline = true
 				continue
 			}
 
@@ -185,7 +193,7 @@ run :: proc() -> int {
 		if len(positional) == 0 {
 			fmt.eprintln("odin-skel: `new` needs a destination directory")
 			fmt.eprintln(
-				"usage: odin-skel new <dest> [name] [--lib] [--pkg=<name>] [--linker=<default|lld|radlink|mold>]",
+				"usage: odin-skel new <dest> [name] [--lib] [--pkg=<name>] [--linker=<default|lld|radlink|mold>] [--offline]",
 			)
 			return 2
 		}
@@ -196,7 +204,7 @@ run :: proc() -> int {
 			fmt.eprintln("odin-skel: --pkg only applies to --lib; ignoring it")
 		}
 		name := len(positional) >= 2 ? positional[1] : ""
-		return new(positional[0], name, linker, kind, pkg)
+		return new(positional[0], name, linker, kind, pkg, offline)
 	case:
 		fmt.eprintfln("odin-skel: unknown command %q", args[0])
 		fmt.eprint(USAGE)

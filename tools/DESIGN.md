@@ -126,6 +126,36 @@ is `missing target/debug/odin-skel.exe - run 'just build_skel' first` rather tha
 "command not found".
 
 
+### Decision 2a — `new` calls back into the project's own recipes for the ols pin
+
+Scaffolding ends with two calls into the project just written: `just bump-ols`, which rewrites the
+`ols_tag`/`ols_sha256` pin to the latest ols release, and `just fetch-ols`, which installs it. Both
+warn and continue; neither can fail the scaffold. `--offline` skips both.
+
+This is the direction of Decision 2 reversed, and deliberately so — it is the same rule, not an
+exception to it. The single definition of *which* release is current and *how* a pin is verified lives
+in the justfile, because that is the copy a user edits and bumps for the rest of the project's life.
+A binary-side reimplementation would be a second GitHub client and a second digest check that agree
+today and diverge the first time either is touched.
+
+**Why do it at all.** The pin the templates carry is as old as the last odin-skel release. Without
+this, every new project starts several ols releases behind, and the first person to bump it takes a
+reformatting diff across files nobody edited. odinfmt ships inside an ols release and has no
+`--version` flag, so there is no cheaper way to discover what is current than asking the release API.
+
+**Why warnings rather than an exit code.** The files are already written and correct by this point;
+what is at stake is only whether the pin is current and the tools are on disk. A scaffold that
+reported failure because GitHub was unreachable would be lying about what happened, and the recovery
+is one command the warning names. The two failures are reported separately because they mean different
+things: the pin not being checked leaves a working project on an older formatter, while the install
+not happening is not a problem at all — `format` depends on `ensure-odinfmt` and retries at the point
+of use.
+
+**Cost.** `new` now needs `just` and `uv` for its last step, where before it needed nothing. Both are
+already required to *use* the project, and a missing one is reported as that rather than as a failure.
+
+
+
 ## Decision 3 — repository layout (a): the repo root stays the template
 
 The tool's source lives under `tools/`. The repository root remains a working Odin project.

@@ -3,10 +3,11 @@
 A minimal project skeleton for the [Odin programming language](http://odin-lang.org/)
 
 <!-- >>> skeleton-only -->
-> **Reading this on GitHub?** This file is the template that both project kinds are scaffolded from, so it shows
-> **both views at once**: wherever the executable and library shapes differ, you will see the two paragraphs one
-> after the other. A scaffolded project's README keeps only the one that applies to it. Each says which kind it is
-> describing, so a pair that looks contradictory here is two answers to the same question, not one wrong one.
+> **Reading this on GitHub?** This file is the template that both executable projects and library projects are
+> scaffolded from, so it shows **both views at once**: wherever the executable and library shapes differ, you will see
+> the two paragraphs one after the other. A scaffolded project's README keeps only the one that applies to it. Each
+> says which kind it is describing, so a pair that looks contradictory here is two answers to the same question, not
+> one wrong one.
 <!-- <<< skeleton-only -->
 
 <!-- >>> exe-only -->
@@ -27,6 +28,7 @@ A minimal project skeleton for the [Odin programming language](http://odin-lang.
 - [Library layout](#library-layout) — why the repository root is the package, and the constraints that follow from it
 <!-- <<< lib-only -->
 - [Tasks](#tasks) — every `just` recipe, grouped by what you are trying to do
+- [Pinned tooling](#pinned-tooling) — why `odinfmt` and `ols` are fetched by version rather than taken from `PATH`
 - [Some recipes need uv](#some-recipes-need-uv) — why a few recipe bodies are Python, and the one tool that needs installing
 - [Choosing a linker](#choosing-a-linker) — four values, what each costs, and when the default is the wrong one
 <!-- >>> exe-only -->
@@ -35,7 +37,7 @@ A minimal project skeleton for the [Odin programming language](http://odin-lang.
 - [Timing a recipe](#timing-a-recipe) — `just --time`, and hyperfine when it is the program you want timed
 - [Benchmarking](#benchmarking) — the opt-in `bench/` harness, and where its documentation lives
 - [Sublime Text editor specific files](#sublime-text-editor-specific-files) — build systems and snippets, installed once for every project
-- [Language Server Configuration](#language-server-configuration) — `ols.json`, and resolving imports from outside the project
+- [Language Server Configuration](#language-server-configuration) — `ols.json`, resolving imports from outside the project, and what OLS treats as the project root
 <!-- >>> skeleton-only -->
 - [Skeleton maintenance](#skeleton-maintenance) — regenerating the snippets and templates, and cutting a release
 <!-- <<< skeleton-only -->
@@ -128,6 +130,13 @@ installed afterwards.
 
 `just new DEST [NAME]` copies this skeleton into a new or empty directory `DEST` (a `.git/` already present is fine —
 usually it was just `git init`-ed; any other content makes it refuse). `NAME` defaults to the `DEST` directory name.
+
+A scaffold finishes by running the *new project's own* `just bump-ols` and `just fetch-ols`: the ols pin the
+templates carry is as old as the last `odin-skel` release, so without this a new project starts several releases
+behind and the first person to bump it takes a reformatting diff across files nobody edited. Both steps only warn
+on failure — the files are written and correct by then, and each warning names the one command that fixes it.
+`--offline` skips both (it is also the last step, so everything before it is purely local). See
+[Pinned tooling](#pinned-tooling).
 
 Add `--linker=VALUE` (`default`, `lld`, `radlink` or `mold`) to pin the new project's linker for every platform
 instead of inheriting the per-OS default — see [Choosing a linker](#choosing-a-linker).
@@ -312,7 +321,9 @@ and the examples are what prove the package is usable from outside it:
 **Quality:**
 
 * `just lint` — type checking, vet warnings, strict style. No code generation
-* `just format` — runs `odinfmt -w .` over the whole tree
+* `just format` — runs the pinned `odinfmt -w .` over the whole tree, fetching it first if needed
+* `just fetch-ols` — install the pinned `ols` + `odinfmt` into `~/.odin-tools` (`--check` / `--force`)
+* `just bump-ols [TAG]` — rewrite the pin in the justfile to the latest (or named) ols release (`--check`)
 * `just test` / `just test1 NAME` — run all tests / one named test
 <!-- >>> exe-only -->
 * `just sanitize [KIND]` — the same, but running the program rather than the tests
@@ -342,6 +353,7 @@ and the examples are what prove the package is usable from outside it:
 * `just ols-config NAME=PATH...` — (re)generate the `ols.json` collection list (see [Language Server Configuration](#language-server-configuration))
 * `just install-sublime` — install the snippets + build systems into Sublime Text's global config (see the Sublime section)
 * `just sublime-build-init` — add a project-local build-system stub to the `.sublime-project` (see the Sublime section)
+* `just sublime-lsp-init` — point the project's Sublime LSP client at the pinned `ols` (see [Pinned tooling](#pinned-tooling))
 
 <!-- >>> skeleton-only -->
 **Skeleton upkeep** (these recipes maintain the skeleton repository itself and are stripped from a
@@ -365,9 +377,8 @@ Notes:
 - **Library:** `check`, `test*`, `example` and `doc` accept optional extra variadic arguments; add `--` before
   passing arguments to an example's own `main`. Edit the `test_main_name` output executable name as needed.
 <!-- <<< lib-only -->
-- `format` assumes `odinfmt` is on your `PATH`. It can be built from source within the
-  [Odin language server](https://github.com/DanielGavin/ols) code (see `odinfmt.bat` / `odinfmt.sh`). OLS is
-  recommended when editing Odin code.
+- `format` does **not** use an `odinfmt` on your `PATH` — it fetches a pinned one and runs that. See
+  [Pinned tooling](#pinned-tooling).
 - Recipes run under `bash` everywhere except Windows, where they run under `cmd.exe /c`. just launches a shell per
   recipe *line*, so shell startup is a fixed tax on every build, and cmd is the cheapest thing that is on every
   Windows: ~9ms to start, against ~143ms for `powershell -NoLogo -NoProfile -Command` (which it replaced) and ~41ms
@@ -383,9 +394,100 @@ Notes:
   shell builtins.
 
 
+## Pinned tooling
+
+`odinfmt` is not interchangeable across versions. It ships inside an [ols](https://github.com/DanielGavin/ols)
+release, has **no `--version` flag**, and two releases format the same source differently. So a copy on `PATH` tells
+you nothing about which one it is, and the failure mode is a developer running `just format`, getting a clean local
+tree, and failing a CI diff on files they never touched.
+
+The justfile therefore pins the ols release and formats with that copy:
+
+```
+ols_tag    := "dev-2026-06"
+ols_plat   := ...    # the release asset for this OS/arch
+ols_sha256 := ...    # that asset's published digest, per platform
+```
+
+`just fetch-ols` downloads `ols-<platform>.zip`, checks it against `ols_sha256` **before** extracting anything, and
+installs all three things the archive holds:
+
+```
+~/.odin-tools/ols/dev-2026-06/
+    ols(.exe)         the language server
+    odinfmt(.exe)     the formatter `just format` runs
+    builtin/          the package ols resolves beside its own executable, and errors without
+```
+
+The tag is *in the path*, so the file being there is the pin being satisfied — there is no state where the right
+path holds the wrong binary, which a single unversioned `~/.odin-tools/odinfmt` would reintroduce the first time the
+pin moved. Several tags coexist, so switching branches switches formatter with no re-download. The root is
+`$ODIN_TOOLS` if set, else `~/.odin-tools` — outside the repository, because one copy serves every checkout and
+worktree, it survives `just clean`, and it needs no `.gitignore` line.
+
+* `just format` depends on `ensure-odinfmt`, which installs on first use. You never call `fetch-ols` by hand.
+* `just fetch-ols --check` exits non-zero when the install is missing or incomplete and downloads nothing — for CI.
+* `just fetch-ols --force` reinstalls over an existing directory. Close any editor running `ols` first: Windows
+  refuses to replace a directory holding a running executable, and the recipe says so rather than half-installing.
+* Extraction goes to a `.part` directory that is renamed into place, so an interrupted run leaves either nothing or
+  a finished install — necessary, because the existence test above never re-hashes anything.
+* `ODINFMT=odinfmt just format` opts out of the pin and uses `PATH` — the guard skips the download when it is set.
+  Pointing the editor at the pinned server is opt-in, so forcing the formatter with no way out would be the odd
+  one of the pair. The pin is the default because unpinned is the failure above; it is not a cage.
+
+A freshly scaffolded project arrives with the pin already brought up to date and the tools installed — scaffolding
+runs the two recipes below for you, warning rather than failing if either cannot. So the commands here are the ones
+for keeping an existing project current.
+
+**Bumping the pin.** `just bump-ols` reads the latest release from GitHub's API and rewrites `ols_tag` and all
+five digests in the justfile for you — copying six values by hand is where a wrong pin comes from:
+
+```
+just bump-ols                 # rewrite the pin to the latest release
+just bump-ols dev-2026-07     # ... to a named release instead
+just bump-ols --check         # is there a newer one? changes nothing, exits non-zero if so
+just fetch-ols --force        # install it; the digests just written are checked on the way in
+just format                   # review this diff - see below
+```
+
+It edits the justfile and stops: no fetch, no format, no commit. `/releases/latest` skips prereleases, which is
+what keeps the continuously re-cut `nightly` tag out of it — a moving tag cannot be hash-pinned. Digests come from
+the API's per-asset `digest` field; an older release without one is downloaded and hashed instead.
+
+Expect to do this fairly often. ols vendors its own copy of the Odin parser, and Odin is pre-1.0 and moving, so a
+pin left far behind your compiler will fail to parse code the compiler accepts. A digest that does not match is a
+hard failure rather than an install: a re-cut tag has to be adopted deliberately, which is the whole point.
+
+**Pointing the editor at the same ols.** `just sublime-lsp-init` writes the pinned server's path into the
+`.sublime-project` file:
+
+```json
+"settings": {
+    "LSP": {
+        "odin": { "command": ["$home/.odin-tools/ols/dev-2026-06/ols.exe"] }
+    }
+}
+```
+
+Sublime's LSP client merges this over the global `clients.odin` config *per key*: `command` is replaced outright,
+while `initializationOptions` is deep-merged — so whatever `enable_*` flags you have set globally still apply, and
+windows without this project keep using the global server. Sublime expands `$home` in `command`, so the file stays
+identical on every machine and can be committed; it does **not** expand environment variables there, so a custom
+`$ODIN_TOOLS` root has to be written out in full. Re-run the recipe after bumping `ols_tag` (it refuses to
+overwrite, so delete the `"LSP"` key first).
+
+Nothing in the justfile runs `ols` — the language server is the editor's business. Pinning it costs one extra file
+from an archive already downloaded, and it means the analysis you see and the formatting you commit come from the
+same release.
+
+The Odin compiler itself is deliberately *not* pinned: pre-1.0 it moves fast enough that pinning would cost more
+than it saves.
+
+
 ## Some recipes need uv
 
-`ols-config`, `install-sublime`, `sublime-build-init` — and `examples` in a library — are `[script]` recipes: their
+`fetch-ols`, `bump-ols`, `ols-config`, `install-sublime`, `sublime-build-init`, `sublime-lsp-init` — and `examples` in a
+library — are `[script]` recipes: their
 bodies are Python, run through [uv](https://docs.astral.sh/uv/) rather than a bare `python`/`python3` on `PATH`. The
 justfile pins this in one place:
 
@@ -639,6 +741,9 @@ commented-out variant examples (release / test / lint / current-file) for you to
 file already has a `build_systems` entry. (`.sublime-project` is loose JSON — `//` comments and trailing commas are
 allowed.)
 
+`just sublime-lsp-init` writes into the same file, pointing this project's language server at the pinned `ols` —
+see [Pinned tooling](#pinned-tooling).
+
 
 ## Language Server Configuration
 
@@ -669,6 +774,49 @@ Linux and macOS only; on Windows write the path out in full.
 `ols.json` itself is plain JSON with no variable substitution — OLS does not expand environment variables in
 collection paths — which is why a recipe generates the file rather than the file reading `XYZ_HOME` itself.
 
+### What "the project root" means to OLS
+
+Everything above depends on one directory: `ols.json` is read from it, relative collection paths resolve against
+it, and a profile's `checker_path` is joined to it. That directory is **not** discovered by searching upwards from
+the file being edited. The editor tells the server what it is, once, and OLS keeps it for the life of the process
+(`workspace_folders[0]` at `initialize`). Worth knowing before grouping several checkouts into one window.
+
+For Sublime Text with the [LSP](https://github.com/sublimelsp/LSP) package, the rules are:
+
+* **One server process per window**, not per folder, and it handles every `.odin` file in that window — including
+  files in a folder it is not rooted at, and files belonging to no folder at all.
+* **The root is the folder containing whichever `.odin` file started the server.** LSP sorts the window's folders
+  so the ones containing that file come first (deepest match first) and hands the first one over as `rootUri`.
+* **Adding or removing folders later does not re-root it.** OLS does not advertise the workspace-folders
+  capability, so LSP never sends the notification. `LSP: Restart Server` re-runs `initialize` and re-roots to
+  whatever file is active then — an escape hatch, not a fix.
+* **A `.sublime-project` file inside one of the folders is never read.** A window has exactly one project; a
+  project file sitting in a subfolder is just a file on disk.
+
+If you are coming from Visual Studio the analogy is close enough to mislead:
+
+| Visual Studio | Sublime + LSP |
+| --- | --- |
+| `.sln` | `.sublime-project` — one per window, groups roots, carries the settings |
+| solution folder (organisational only) | an entry in `"folders"` — this is what a folder actually is |
+| `.csproj`: own settings, own references, own build | **no equivalent** |
+| language service re-evaluates per project as you navigate | one server, one root, chosen at startup |
+
+There is no per-project layer: a folder carries no settings, no references and no identity. So a Sublime project
+is closer to a `.sln` containing exactly *one* `.csproj` than to a solution of several. Group five repositories
+into one window and you do not get five projects — you get one, whose root is decided by the first file you open.
+
+**So: one window per Odin project.** If you do want them together, make the containing directory the window's
+single folder and register each sub-repository as a collection with `just ols-config`. That is the shape OLS
+models — one project with several collections, like one `.csproj` referencing several libraries — and it is
+deterministic where a folder-per-repository window is not.
+
+Opening a bare directory (`subl -n thedir`, no project file) is a milder version of the same thing. The window
+still has a folder, so `rootUri` is that directory and `thedir/ols.json` is read normally; what is missing is the
+`.sublime-project` file, and with it any per-project override of the global LSP client settings. Opening a lone
+file with no folder at all leaves the root empty, and then no project `ols.json` is read at all — only the global
+editor configuration applies.
+
 <!-- >>> skeleton-only -->
 ## Skeleton maintenance
 
@@ -694,7 +842,7 @@ The generator only adds the snippet XML wrapper plus a few `${n:default}` intera
 markers in the `justfile` are stripped from the Justfile snippets. Four marker names are used:
 
 * `skeleton-only` — e.g. `new`, `snippets`. Meaningless outside this repo, so `just new` drops them too
-* `snippet-exclude` — e.g. `sublime-build-init`. Kept by `just new`, but left out of the snippets because it contains
+* `snippet-exclude` — `sublime-build-init` and `sublime-lsp-init`. Kept by `just new`, but left out of the snippets because they contain
   literal `$` that Sublime would otherwise parse as snippet fields
 * `exe-only` / `lib-only` — the recipes belonging to one project kind. Each justfile snippet keeps its own kind's block
   and drops the other's, which is the same split `odin-skel new --lib` applies

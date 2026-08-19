@@ -56,11 +56,7 @@ FEATURE_BENCH :: "bench"
 
 @(rodata)
 FEATURES := [?]Feature {
-	{
-		name = FEATURE_BENCH,
-		dir = "bench",
-		description = "benchmark harness (bench/, plus its just recipes)",
-	},
+	{name = FEATURE_BENCH, dir = "bench", description = "benchmark harness (bench/, plus its just recipes)"},
 }
 
 @(require_results)
@@ -458,7 +454,9 @@ odin_package_name :: proc(
 	// This also closes the only gap in the target-suffix check below, which requires at least one
 	// character before the `_` and so could not have rejected a bare `_js`.
 	if candidate[0] == '_' {
-		return "", "Odin will not compile a file whose name starts with `_`, and the file is named after the package", false
+		return "",
+			"Odin will not compile a file whose name starts with `_`, and the file is named after the package",
+			false
 	}
 
 	return strings.clone(candidate, allocator), "", true

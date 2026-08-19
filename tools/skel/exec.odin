@@ -17,12 +17,17 @@ Run `command` and capture its output.
 Odin's core has no TLS and no shell, so every external interaction in this tool goes through here.
 Both streams are captured because version banners are inconsistent about which one they use - `odin
 version` writes to stdout, some tools write to stderr - and for a probe we only care that a version
-string came back at all.
+string came back at all. A command that *failed* is the other case: it has usually written a progress
+line to stdout and the reason to stderr, so for a non-zero exit both are returned rather than the first
+non-empty one. Preferring stdout there loses the only thing worth reporting.
+
+`working_dir` runs the command somewhere else, which `new` needs: the recipes it calls belong to the
+project it has just written, not to whatever directory odin-skel was invoked from. Empty means "here".
 
 The caller owns the returned `output`.
 */
-probe :: proc(command: []string, allocator := context.allocator) -> Probe {
-	state, out, errout, err := os.process_exec({command = command}, allocator)
+probe :: proc(command: []string, working_dir := "", allocator := context.allocator) -> Probe {
+	state, out, errout, err := os.process_exec({command = command, working_dir = working_dir}, allocator)
 	defer delete(out, allocator)
 	defer delete(errout, allocator)
 
@@ -32,8 +37,14 @@ probe :: proc(command: []string, allocator := context.allocator) -> Probe {
 	}
 
 	text := strings.trim_space(string(out))
-	if text == "" {
-		text = strings.trim_space(string(errout))
+	problem := strings.trim_space(string(errout))
+	switch {
+	case problem == "":
+	case text == "":
+		text = problem
+	case state.exit_code != 0:
+		joined := strings.concatenate({text, "\n", problem}, allocator)
+		return Probe{found = true, exit_code = state.exit_code, output = joined}
 	}
 
 	return Probe{found = true, exit_code = state.exit_code, output = strings.clone(text, allocator)}

@@ -98,7 +98,12 @@ test_strip_on_the_real_gitattributes :: proc(t: ^testing.T) {
 	// `.sublime/**` is vendored, not generated, so unlike the rules above it must survive: a
 	// scaffolded project gets the same editor files and the same reason to keep them out of its
 	// language statistics.
-	for kept in ([]string{"* text=auto eol=lf", "*.ps1 text eol=crlf", "*.dylib binary", ".sublime/** linguist-vendored=true"}) {
+	for kept in ([]string {
+			"* text=auto eol=lf",
+			"*.ps1 text eol=crlf",
+			"*.dylib binary",
+			".sublime/** linguist-vendored=true",
+		}) {
 		testing.expectf(t, strings.contains(got, kept), "template rule %q was stripped", kept)
 	}
 	testing.expect(t, !strings.contains(got, "# >>>"), "a marker line leaked")
@@ -207,11 +212,11 @@ test_set_linker_default_on_the_real_justfile :: proc(t: ^testing.T) {
 
 	stripped := strip_marked_blocks(source, drop_names(.Exe))
 	defer delete(stripped)
-	testing.expect(
-		t,
-		strings.contains(stripped, "if os() == \"windows\""),
-		"the per-OS default should survive the skeleton-only strip",
-	)
+	// Matched through `ODIN_LINKER`, not on a bare `if os() ==`: other variables in the justfile are
+	// per-OS too (`exe_ext`, `ols_plat`, `home_dir`), so a bare match would pass on the wrong line and
+	// the absence check below would fail on one the rewrite is not supposed to touch.
+	PER_OS :: "ODIN_LINKER\", if os() == \"windows\""
+	testing.expect(t, strings.contains(stripped, PER_OS), "the per-OS default should survive the skeleton-only strip")
 
 	got, ok := set_linker_default(stripped, "mold")
 	testing.expect(t, ok, "the `linker :=` anchor was not found")
@@ -222,7 +227,7 @@ test_set_linker_default_on_the_real_justfile :: proc(t: ^testing.T) {
 		strings.contains(got, "linker := env_var_or_default(\"ODIN_LINKER\", \"mold\")\n"),
 		"the pinned assignment was not written",
 	)
-	testing.expect(t, !strings.contains(got, "if os() =="), "the per-OS conditional survived")
+	testing.expect(t, !strings.contains(got, PER_OS), "the per-OS conditional survived")
 	// Only the one line may change: the recipes that consume {{linker}} and the comment block above
 	// the assignment both have to come through untouched.
 	testing.expect(t, strings.contains(got, "-linker:{{linker}} -out:"), "the recipes were damaged")
@@ -410,7 +415,7 @@ test_sublime_build_serves_both_kinds :: proc(t: ^testing.T) {
 
 	// Matched on the variant names: the `shell_cmd` values carry JSON-escaped quotes, and `run` is a
 	// prefix of `run_release`.
-	for wanted in ([]string{
+	for wanted in ([]string {
 			"project - just run (debug)",
 			"project - just run_release\"",
 			"project - just sanitize",
@@ -452,7 +457,14 @@ test_strip_real_justfile_for_lib :: proc(t: ^testing.T) {
 
 	// Matched as recipe or assignment headers, not as bare words: `test_main_name` contains
 	// `main_name`, and the shared `mktarget_dirs` comment mentions the build recipes by name.
-	for gone in ([]string{"\nrun_debug *args:", "\nrerun_debug *args:", "\ndiagnose *args:", "\nmain_name :=", "\nbuild_skel *args:", "\n_embed mode:"}) {
+	for gone in ([]string {
+			"\nrun_debug *args:",
+			"\nrerun_debug *args:",
+			"\ndiagnose *args:",
+			"\nmain_name :=",
+			"\nbuild_skel *args:",
+			"\n_embed mode:",
+		}) {
 		testing.expectf(t, !strings.contains(got, gone), "%q survived into a library justfile", gone)
 	}
 	for kept in ([]string{"\ncheck *args:", "\nexample name", "\ndoc *args:", "\ntest *args:", "mktarget_dirs"}) {
@@ -720,7 +732,15 @@ test_strip_on_the_real_readme :: proc(t: ^testing.T) {
 
 	// "just new", "just snippets" and "odin-skel" name recipes and a binary that a scaffolded
 	// project does not have, so any mention of them is a leak wherever it appears in the file.
-	for gone in ([]string{"Installing odin-skel", "Cutting a release", "just new", "just embed", "just snippets", "odin-skel", "skeleton-only"}) {
+	for gone in ([]string {
+			"Installing odin-skel",
+			"Cutting a release",
+			"just new",
+			"just embed",
+			"just snippets",
+			"odin-skel",
+			"skeleton-only",
+		}) {
 		testing.expectf(t, !strings.contains(got, gone), "skeleton-only README content %q leaked", gone)
 	}
 	// "Choosing a linker" documents a justfile variable the scaffolded project still has, so it must

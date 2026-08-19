@@ -71,8 +71,8 @@ jobs:
       - uses: astral-sh/setup-uv@v9.0.0
 
       # `odin check .` covers only the root package, so the template and the tool are linted
-      # separately. Neither needs odinfmt, which is why `just format` is not run here - odinfmt has
-      # to be built from the ols repo and is optional for everything except formatting.
+      # separately. Neither needs odinfmt. `just format` is not run here because it would rewrite the
+      # tree rather than check it; `just fetch-ols` plus `git diff --exit-code` would be the gate.
       - name: lint template
         run: just lint
 
@@ -108,7 +108,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          just new "$RUNNER_TEMP/generated" ciproj
+          # --offline: `new` otherwise ends by calling the release API and downloading the pinned
+          # ols. Both only warn on failure, so this is about CI time and rate limits, not redness.
+          just new --offline "$RUNNER_TEMP/generated" ciproj
           cd "$RUNNER_TEMP/generated"
           just lint
           just run
@@ -153,8 +155,10 @@ jobs:
           grep -q "text=auto eol=lf" .gitattributes
           # linguist-vendored is not skeleton-only - the editor files are copied, so it must survive.
           grep -q "linguist-vendored=true" .gitattributes
-          # No --linker was passed, so the per-OS default must come through untouched.
-          grep -q 'if os() == "windows"' justfile
+          # No --linker was passed, so the per-OS default must come through untouched. Anchored on
+          # ODIN_LINKER: other variables (exe_ext, ols_plat, home_dir) are per-OS too, and a bare
+          # `if os() ==` would pass here whether or not the linker default survived.
+          grep -q 'ODIN_LINKER", if os() == "windows"' justfile
 
       # The library kind needs its own end-to-end run for the same reason the executable one does: the
       # unit tests prove the transformations in isolation, but only a real scaffold proves the result
@@ -165,7 +169,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          just new "$RUNNER_TEMP/generated-lib" odin-cilib --lib
+          just new --offline "$RUNNER_TEMP/generated-lib" odin-cilib --lib
           cd "$RUNNER_TEMP/generated-lib"
           # The directory is the package: the placeholder name must be gone, and the package clause
           # must carry the derived identifier rather than the hyphenated project name.
@@ -231,10 +235,12 @@ jobs:
             pinned=lld
           fi
           echo "pinning linker: $pinned"
-          just new "$RUNNER_TEMP/pinned" pinnedproj "--linker=$pinned"
+          # --offline matters more here than elsewhere: `bump-ols` would rewrite ols_tag in the
+          # very justfile the greps below read.
+          just new --offline "$RUNNER_TEMP/pinned" pinnedproj "--linker=$pinned"
           cd "$RUNNER_TEMP/pinned"
           grep -q "linker := env_var_or_default(\"ODIN_LINKER\", \"$pinned\")" justfile
-          if grep -q "if os() ==" justfile; then
+          if grep -q 'ODIN_LINKER", if os() ==' justfile; then
             echo "--linker did not replace the per-OS default" >&2
             exit 1
           fi

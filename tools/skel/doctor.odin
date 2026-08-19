@@ -48,11 +48,18 @@ CHECKS :: []Tool_Check {
 		name          = "odinfmt",
 		// odinfmt has no version flag (`[path] [-config] [-stdin] [-w]`), so a bare invocation is
 		// the probe: it prints usage and exits non-zero, which still proves it is installed.
+		//
+		// This probes PATH, which is NOT what `just format` runs: the justfile pins an ols release and
+		// formats with the copy under `~/.odin-tools/ols/<tag>/`, because two odinfmt builds format the
+		// same source differently and a version cannot be interrogated out of a binary. So a machine
+		// reported as missing it here still formats correctly. Reported anyway: a PATH copy is what an
+		// editor or a hand-run `odinfmt` picks up, and knowing a second one is in front of the pinned
+		// one is worth more than a silent pass.
 		probe_args    = {"odinfmt"},
 		required      = false,
 		presence_only = true,
-		why           = "only `just format` needs it",
-		install       = "build from the ols repo: https://github.com/DanielGavin/ols",
+		why           = "not needed by `just format` - it uses the pinned copy from `just fetch-ols`; only a hand-run odinfmt uses PATH",
+		install       = "`just fetch-ols`, or build from the ols repo: https://github.com/DanielGavin/ols",
 	},
 	{
 		name = "git",
@@ -72,15 +79,15 @@ CHECKS :: []Tool_Check {
 		// Deliberately not a recipe list: this one binary scaffolds both project kinds, and the
 		// `[script]` recipes differ between them - `examples` exists only in a library, the editor-setup
 		// ones in both.
-		why        = "runs the justfile's `[script]` recipes (editor setup everywhere, `examples` in a library) without a system python",
+		why        = "runs the justfile's `[script]` recipes - `fetch-ols`, which `just format` depends on, editor setup everywhere, `examples` in a library - without a system python",
 		install    = "https://docs.astral.sh/uv/getting-started/installation/",
 	},
 	{
-		name       = "hyperfine",
+		name = "hyperfine",
 		probe_args = {"hyperfine", "--version"},
-		required   = false,
-		why        = "only `just time_release` / `just time_profiles` need it - whole-process timings",
-		install    = "https://github.com/sharkdp/hyperfine#installation",
+		required = false,
+		why = "only `just time_release` / `just time_profiles` need it - whole-process timings",
+		install = "https://github.com/sharkdp/hyperfine#installation",
 	},
 	{
 		name       = "valgrind",

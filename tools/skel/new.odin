@@ -19,6 +19,9 @@ used for the `.sublime-project` file.
 directory is the package itself. `pkg` names that package and is only consulted for `.Lib`; when
 empty it is derived from the project name, which frequently is not a legal package clause on its own.
 
+`offline` skips the ols pin check and install at the end - see `pin_and_install_ols`. Everything up to
+that point is local, so an offline scaffold is a complete one.
+
 Not everything is copied verbatim:
 
   - the justfile, README.md and .gitattributes have their marker blocks stripped, per kind
@@ -30,7 +33,14 @@ Not everything is copied verbatim:
 
 Returns a process exit code.
 */
-new :: proc(dest: string, name: string, linker: string = "", kind := Project_Kind.Exe, pkg: string = "") -> int {
+new :: proc(
+	dest: string,
+	name: string,
+	linker: string = "",
+	kind := Project_Kind.Exe,
+	pkg: string = "",
+	offline := false,
+) -> int {
 	if os.is_file(dest) {
 		fmt.eprintfln("odin-skel: refusing - %q is a file", dest)
 		return 1
@@ -195,7 +205,98 @@ new :: proc(dest: string, name: string, linker: string = "", kind := Project_Kin
 	} else {
 		fmt.printfln("created %d files in %s (project %q, Zlib license)", written, dest, project)
 	}
+
+	if !offline {
+		pin_and_install_ols(dest)
+	}
 	return 0
+}
+
+/*
+Bring the new project's ols pin up to date, then install it. Warns and continues on any failure.
+
+The pin the templates carry is as old as the last odin-skel release, so without this a new project
+starts several ols releases behind and takes a reformatting diff across files nobody edited the first
+time anybody bumps it. odinfmt ships inside an ols release and cannot report its own version, which is
+why the pin exists at all - see the justfile's `ols_tag`.
+
+Neither step is reimplemented here. `just bump-ols` and `just fetch-ols` are recipes in the justfile
+that was just written, so the tool and the scaffolded project cannot disagree about how a pin is chosen
+or verified - the same reason `just new` is a thin wrapper around this binary rather than a second copy
+of the logic (tools/DESIGN.md, Decision 2). The cost is that both steps need `just` and `uv`, so a
+missing one is reported as that rather than as a failure.
+
+Every failure here is a warning, never an exit code: the files are already written and correct, and what
+is at stake is only whether the pin is current and the tools are on disk. A scaffold that reported
+failure because GitHub was unreachable would be lying about what happened.
+*/
+pin_and_install_ols :: proc(dest: string) {
+	shipped, shipped_ok := justfile_ols_tag(dest)
+	defer if shipped_ok {
+		delete(shipped)
+	}
+
+	fmt.println()
+	fmt.println("checking for the latest ols release (`--offline` skips this and the install below)")
+	bump := probe({"just", "bump-ols"}, dest)
+	defer delete(bump.output)
+	if bump.output != "" {
+		fmt.println(bump.output)
+	}
+	if !bump.found {
+		fmt.eprintln("odin-skel: warning: `just` is not on PATH, so the ols pin was not checked")
+	} else if bump.exit_code != 0 {
+		fmt.eprintfln("odin-skel: warning: could not check for the latest ols release (exit %d)", bump.exit_code)
+	}
+	if !bump.found || bump.exit_code != 0 {
+		if shipped_ok {
+			fmt.eprintfln("  the project keeps the pin it shipped with, ols_tag = %q", shipped)
+		}
+		fmt.eprintln("  run `just bump-ols` in the project to adopt the latest release")
+	}
+
+	fmt.println("installing the pinned ols + odinfmt")
+	fetch := probe({"just", "fetch-ols"}, dest)
+	defer delete(fetch.output)
+	if fetch.output != "" {
+		fmt.println(fetch.output)
+	}
+	if !fetch.found {
+		fmt.eprintln("odin-skel: warning: `just` is not on PATH, so the pinned tools were not installed")
+	} else if fetch.exit_code != 0 {
+		fmt.eprintfln("odin-skel: warning: could not install the pinned ols + odinfmt (exit %d)", fetch.exit_code)
+	}
+	if !fetch.found || fetch.exit_code != 0 {
+		// `format` depends on `ensure-odinfmt`, so the download is retried at the point it is needed.
+		fmt.eprintln("  the first `just format` installs them anyway, or run `just fetch-ols` when ready")
+	}
+}
+
+// The `ols_tag` the written justfile carries, for a warning that can name it. Anchored to the start of
+// a line so the tag mentioned in the file's own comments cannot be read instead. Unreadable or absent is
+// not worth a message of its own - the caller just leaves the tag out of its warning.
+@(require_results)
+justfile_ols_tag :: proc(dest: string, allocator := context.allocator) -> (tag: string, ok: bool) {
+	full := join_path(dest, "justfile")
+	defer delete(full)
+
+	data, err := os.read_entire_file(full, context.temp_allocator)
+	if err != nil {
+		return "", false
+	}
+
+	PREFIX :: "ols_tag := \""
+	text := string(data)
+	for line in strings.split_lines_iterator(&text) {
+		if !strings.has_prefix(line, PREFIX) {
+			continue
+		}
+		rest := line[len(PREFIX):]
+		if end := strings.index_byte(rest, '"'); end >= 0 {
+			return strings.clone(rest[:end], allocator), true
+		}
+	}
+	return "", false
 }
 
 /*

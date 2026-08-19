@@ -9,7 +9,77 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-19
+
+### Added
+
+- justfile: `fetch-ols` installs a pinned ols release — the language server, `odinfmt` and the `builtin/` package the
+  server resolves beside its own executable — into `$ODIN_TOOLS/ols/<tag>/`, verified against the release asset's
+  published SHA-256 before anything is extracted. `format` now depends on `ensure-odinfmt` and runs `{{odinfmt_bin}}`
+  rather than a bare `odinfmt`, because odinfmt ships inside an ols release, has no `--version` flag, and two
+  releases format the same source differently: an unpinned formatter produces a clean local tree and a CI diff on
+  files nobody touched. The tag is in the install path, so the file being there is the pin being satisfied and no
+  hash is recomputed on the way into every `format`; extraction stages into a `.part` directory and renames it into
+  place, so an interrupted run cannot leave a half-install that the existence test would trust forever. The root is
+  outside the repository — one copy serves every checkout and worktree, it survives `just clean`, and it needs no
+  gitignore line. `--check` (exit non-zero, download nothing) is for CI; `--force` reinstalls.
+
+- justfile: `sublime-lsp-init` writes the pinned server's path into the project's `.sublime-project` as an `LSP` →
+  `odin` → `command` override, so the editor's analysis and the committed formatting come from one release. Sublime's
+  LSP client replaces `command` outright but deep-merges `initializationOptions`, so globally configured `enable_*`
+  flags survive; the path is written with a leading `$home`, which Sublime expands in `command`, so the file is
+  identical on every machine. Environment variables are *not* expanded there, so a custom `$ODIN_TOOLS` root is
+  written out in full. Excluded from the generated snippets alongside `sublime-build-init` for the same reason — the
+  literal `$home` would be parsed as a snippet field.
+
+- justfile: `bump-ols` rewrites `ols_tag` and all five `ols_sha256` digests from GitHub's release API - `just bump-ols`
+  for the latest release, `just bump-ols <tag>` for a named one, `just bump-ols --check` to ask whether a newer one
+  exists without changing anything. Copying six values by hand is where a wrong pin comes from. It edits the justfile
+  and stops - no fetch, no format, no commit - because the next `format` may reformat files nobody edited and that
+  diff is worth seeing before it is buried in a bump commit. Digests come from the API's per-asset `digest` field,
+  falling back to downloading and hashing an asset that has none. `/releases/latest` skips prereleases, which keeps
+  the continuously re-cut `nightly` tag out of a pin that only means anything if the bytes are fixed.
+
+- `$ODINFMT` opts out of the formatter pin: `ODINFMT=odinfmt just format` uses PATH, and `ensure-odinfmt` skips the
+  download when it is set. Pointing the editor at the pinned server is opt-in (`sublime-lsp-init` is a recipe, and
+  `odin-skel new` scaffolds the `.sublime-project` without it), so forcing the formatter with no way out was the odd
+  one of the pair.
+
+- `odin-skel new` finishes by running the new project's own `just bump-ols` and `just fetch-ols`, so a scaffold starts
+  on the current formatter with the tools already on disk. The pin the templates carry is as old as the last release
+  of this binary, so without it every new project began several ols releases behind and the first bump arrived as a
+  reformatting diff across files nobody edited. Both steps warn and continue - the files are written and correct by
+  that point, so a scaffold that failed because GitHub was unreachable would be misreporting what happened - and each
+  warning names the command that fixes it, quoting the `ols_tag` the project kept. `--offline` skips both; everything
+  before that step is local, so an offline scaffold is a complete one. Neither step is reimplemented in the binary:
+  the recipes live in the justfile that was just written, which is the copy the user edits and bumps from then on
+  (tools/DESIGN.md, Decision 2a). The cost is that `new`'s last step needs `just` and `uv`, and a missing one is
+  reported as that rather than as a failure.
+
 ### Changed
+
+- New `toolchain` recipe group holds `fetch-ols`, `bump-ols` and `ensure-odinfmt`. That guard exists only because
+  `format` runs constantly and `fetch-ols` is a `[script]` recipe, so depending on it directly would pay a uv start
+  just to be told the file is already there; `sublime-lsp-init` runs once and depends on `fetch-ols` outright.
+  `fetch-ols` checks all three installed parts, which is what repairs an older odinfmt-only layout at the same path.
+
+- justfile: the comment blocks around the new recipes are summaries with a README pointer rather than a second copy of
+  "Pinned tooling" - the same treatment the linker and sanitizer blocks got in 0.7.5, and for the same reason: two
+  copies of a paragraph is one copy that goes stale unnoticed. Each block keeps only what is true at the line being
+  edited (why the digest and not just the tag, why `USERPROFILE` before `HOME`, why the archive members are matched by
+  prefix). `ensure-ols` is gone rather than shortened: `fetch-ols` already no-ops when the install is complete, so two
+  platform recipes were guarding nothing for one interactive consumer, and `sublime-lsp-init` depends on `fetch-ols`
+  directly. `ensure-odinfmt` stays, because `format` runs constantly and should not pay a uv start to be told the file
+  is already there.
+
+- `probe` gained a `working_dir` (`new` runs recipes in the project it just wrote) and now returns both streams when a
+  command exits non-zero. Preferring stdout is right for a version banner but loses the only useful line from a failed
+  command, which typically writes progress to stdout and the reason to stderr.
+
+- `odin-skel doctor` no longer implies `just format` needs an `odinfmt` on `PATH` — it does not, it uses the pinned
+  copy. The check stays, because a PATH copy is what an editor or a hand-run `odinfmt` picks up and knowing a second
+  formatter sits in front of the pinned one is worth reporting. The Odin compiler is deliberately not pinned: pre-1.0
+  it moves fast enough that pinning would cost more than it saves.
 
 - justfile: every recipe now carries a `[group('...')]` attribute, so `just --list` prints them under `build`,
   `docs`, `editor`, `housekeeping`, `perf`, `qa`, `skeleton` and `test` headings instead of one alphabetical
@@ -19,6 +89,41 @@ release deliberately — a release with no notes is the thing this file exists t
   justfile shares the importer's namespace, and a group name needs no declaration to be used. Scaffolded projects
   inherit it — a `--lib` project's `build` group empties out entirely, and an executable project shows no `docs` group
   at all, because the kind markers strip those recipes before the groups are read.
+
+### Fixed
+
+- CI: the pinned-linker job asserted `--linker=` had removed the per-OS default by grepping for `if os() ==`, which the
+  new `exe_ext` / `ols_plat` / `home_dir` variables also match - so the assertion would have failed on every platform.
+  Both it and the no-linker job's counterpart are now anchored on `ODIN_LINKER", if os() ==`, the same anchor the unit
+  test uses. The three `just new` steps pass `--offline`: scaffolding otherwise ends in a release-API call and a ~5 MB
+  download per matrix job, and in the pinned-linker job `bump-ols` would rewrite the justfile the greps then read.
+- justfile: `format` quotes `{{odinfmt_bin}}`. The path is built from `USERPROFILE`/`HOME`, so on a machine whose
+  profile directory contains a space cmd ran the first word of it and `format` was broken for that user. The
+  `ensure-odinfmt` guards already quoted the same value.
+- justfile: `fetch-ols` takes `{{ols_install}}` instead of re-deriving the install root from `expanduser`. The two
+  resolvers agree on an ordinary machine but not where `USERPROFILE` is unset and a git-bash parent has set an MSYS
+  `HOME` - and then fetch-ols installed where `ensure-odinfmt` was not looking, so every `format` re-downloaded and
+  still failed to exec. One rule, applied once, in the variables.
+- justfile: the snippet generator escapes `$` in the embedded source. Comments naming `$ODIN_TOOLS`, `$GITHUB_TOKEN`
+  and `$GH_TOKEN` were the first `$` ever to reach a generated snippet, where Sublime reads them as fields and expands
+  unknown ones to nothing - inserting the snippet deleted the names. The `${n:...}` fields the generator adds itself go
+  in after the escaping and stay live.
+- justfile: `bump-ols` no longer reports a differing tag as a *newer* release. These tags carry no ordering the recipe
+  can rely on and `/releases/latest` can be older than a hand-picked pin, so `--check` now says the pin does not match.
+- justfile: `fetch-ols` matches `builtin/` anywhere in an archive path, as it already did for the two binaries. A
+  release nesting its contents one directory deeper would have found the binaries and aborted on the missing package.
+
+### Documentation
+
+- README, Language Server Configuration: a new section on what OLS treats as the project root, because every setting
+  in that section depends on it and nothing in the section said where it comes from. It is not found by searching
+  upwards from the file being edited - the editor names it once at `initialize` and OLS keeps it for the process
+  lifetime. With Sublime's LSP package that means one server per window rather than per folder, rooted at the folder
+  holding whichever `.odin` file started it, unchanged by adding folders later (OLS does not advertise the
+  workspace-folders capability, so the notification is never sent), and blind to a `.sublime-project` file sitting
+  inside one of the folders. Includes the Visual Studio mapping, since the analogy is close enough to mislead: there
+  is no per-project layer, so a Sublime project is a `.sln` with exactly one `.csproj`, not a solution of several -
+  which is why grouping repositories belongs in one `ols.json` as collections rather than as sibling folders.
 
 ## [0.7.5] - 2026-08-11
 
@@ -663,7 +768,9 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.7.5...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.8.0...HEAD
+[0.8.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.0
+[0.8.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.0
 [0.7.5]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.5
 [0.7.4]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.4
 [0.7.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.7.1

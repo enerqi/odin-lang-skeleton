@@ -9,6 +9,8 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-08-19
+
 ### Changed
 
 - `odin-skel doctor` now says an optional tool is optional when it is *present*, not only when it is missing: a line
@@ -790,7 +792,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.8.1...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.8.2...HEAD
+[0.8.2]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.2
 [0.8.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.1
 [0.8.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.0
 [0.8.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.0

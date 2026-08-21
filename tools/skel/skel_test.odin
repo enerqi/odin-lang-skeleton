@@ -97,3 +97,11 @@ test_owned_commands_cover_dispatch :: proc(t: ^testing.T) {
 test_owned_commands_cover_add :: proc(t: ^testing.T) {
 	testing.expect(t, slice.contains(OWNED_COMMANDS, "add"), "`add` missing from OWNED_COMMANDS")
 }
+
+// `sync` is dispatched in main.odin, so the loop guard applies to it too - and it matters more here
+// than for `add`: `just sync` is not a recipe, so a forwarded `sync` would die with a just error
+// rather than a bounce, which is harder to recognise as this bug.
+@(test)
+test_owned_commands_cover_sync :: proc(t: ^testing.T) {
+	testing.expect(t, slice.contains(OWNED_COMMANDS, "sync"), "`sync` missing from OWNED_COMMANDS")
+}

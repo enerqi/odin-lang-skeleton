@@ -5,18 +5,30 @@
 // file no longer matches the repository.
 package skel
 
-TEMPLATES :: []Template{
-	{path = ".editorconfig", data = #load("../../.editorconfig", string)},
-	{path = ".gitattributes", data = #load("../../.gitattributes", string)},
-	{path = ".gitignore", data = #load("../../.gitignore", string)},
-	{path = ".just/editor.just", data = #load("../../.just/editor.just", string)},
-	{path = ".just/toolchain.just", data = #load("../../.just/toolchain.just", string)},
-	{path = ".sublime/Just-Odin-lib.sublime-snippet", data = #load("../../.sublime/Just-Odin-lib.sublime-snippet", string)},
+TEMPLATES :: []Template {
+	{path = ".editorconfig", data = #load("../../.editorconfig", string), sync = true},
+	{path = ".gitattributes", data = #load("../../.gitattributes", string), sync = true},
+	{path = ".gitignore", data = #load("../../.gitignore", string), sync = true},
+	{path = ".just/editor.just", data = #load("../../.just/editor.just", string), sync = true},
+	{path = ".just/toolchain.just", data = #load("../../.just/toolchain.just", string), sync = true},
+	{
+		path = ".sublime/Just-Odin-lib.sublime-snippet",
+		data = #load("../../.sublime/Just-Odin-lib.sublime-snippet", string),
+	},
 	{path = ".sublime/Just-Odin.sublime-snippet", data = #load("../../.sublime/Just-Odin.sublime-snippet", string)},
-	{path = ".sublime/Odin-skeleton.sublime-snippet", data = #load("../../.sublime/Odin-skeleton.sublime-snippet", string)},
+	{
+		path = ".sublime/Odin-skeleton.sublime-snippet",
+		data = #load("../../.sublime/Odin-skeleton.sublime-snippet", string),
+	},
 	{path = ".sublime/Odin.sublime-build", data = #load("../../.sublime/Odin.sublime-build", string)},
-	{path = ".sublime/OdinJustTarget.sublime-build", data = #load("../../.sublime/OdinJustTarget.sublime-build", string)},
-	{path = ".sublime/odin-lang-skeleton.sublime-project", data = #load("../../.sublime/odin-lang-skeleton.sublime-project", string)},
+	{
+		path = ".sublime/OdinJustTarget.sublime-build",
+		data = #load("../../.sublime/OdinJustTarget.sublime-build", string),
+	},
+	{
+		path = ".sublime/odin-lang-skeleton.sublime-project",
+		data = #load("../../.sublime/odin-lang-skeleton.sublime-project", string),
+	},
 	{path = "LICENSE", data = #load("../../LICENSE", string)},
 	{path = "README.md", data = #load("../../README.md", string)},
 	{path = "bench/README.md", data = #load("../../bench/README.md", string), feature = "bench"},
@@ -28,5 +40,5 @@ TEMPLATES :: []Template{
 	{path = "mylib/examples/basic.odin", data = #load("../../mylib/examples/basic.odin", string), kind = .Lib},
 	{path = "mylib/mylib.odin", data = #load("../../mylib/mylib.odin", string), kind = .Lib},
 	{path = "mylib/mylib_test.odin", data = #load("../../mylib/mylib_test.odin", string), kind = .Lib},
-	{path = "odinfmt.json", data = #load("../../odinfmt.json", string)},
+	{path = "odinfmt.json", data = #load("../../odinfmt.json", string), sync = true},
 }

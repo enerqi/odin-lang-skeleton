@@ -153,8 +153,11 @@ See [Pinned tooling](#pinned-tooling).
 Add `--linker=VALUE` (`default`, `lld`, `radlink` or `mold`) to pin the new project's linker for every platform
 instead of inheriting the per-OS default — see [Choosing a linker](#choosing-a-linker).
 
-Add `--lib` to scaffold a **library** rather than an executable — an Odin source package that other projects copy
-into their tree and import, with the destination directory as the package itself and examples under `examples/`.
+Add `--lib` to scaffold a **library** rather than an executable — an Odin source package a consumer clones or copies
+into their own tree, with the destination directory as the package itself and examples under `examples/`. They import
+it by the path they put it at, or mount that directory as a collection (`-collection:libs=libs`) and import it by
+name; which of the two is the consumer's choice, not something the library declares. See
+[Library layout](#library-layout).
 The package name is derived from `NAME` by turning `-`, `.` and spaces into underscores (`odin-toml` → `odin_toml`),
 since a directory name is not always a legal `package` clause; `--pkg=NAME` overrides it. A library project gets
 `just check`, `just example NAME`, `just examples-check` and `just doc` in place of the `run_*` / `rerun_*` build ladder,
@@ -204,6 +207,61 @@ that most projects never open, and a skeleton is worth what a reader can hold in
 Nothing needs editing to install one. The generated justfile already carries `import? 'bench/bench.just'` — an
 *optional* import, so it does nothing until the directory exists, and `just --list` is clean either way. The
 feature's recipes ship inside the feature. Removing it is `rm -rf bench/`.
+
+### Keeping a project's boring files in sync
+
+The files a project never edits fall behind the skeleton, and copying them across by hand is the kind of chore that
+does not get done. `odin-skel sync` overwrites them from the binary's own templates:
+
+```
+odin-skel sync                  # in the project directory
+odin-skel sync ../my-game       # or somewhere else
+odin-skel sync --check          # exit 1 if anything has drifted, write nothing (for CI)
+odin-skel sync --dry-run        # list what would change, write nothing, exit 0
+```
+
+Six files, and only these:
+
+| file | |
+| --- | --- |
+| `.editorconfig` | tabs, LF, final newline |
+| `.gitattributes` | `eol=lf` everywhere, binary and linguist rules |
+| `.gitignore` | build artifacts per platform |
+| `.just/editor.just` | the Sublime and OLS setup recipes |
+| `.just/toolchain.just` | the pinned-tool recipes — **your `ols_tag` / `ols_sha256` pin is kept**, see below |
+| `odinfmt.json` | line width and newline style |
+
+A file the project does not have yet is *created*, so a project scaffolded before a template existed picks it up.
+
+**Your `justfile`, `README.md`, `LICENSE`, your source and the `.sublime` files are never touched.** Those either
+carry your work or carry this project's own name, and none of them can be reproduced from the destination directory:
+the justfile has whatever `--linker` you scaffolded with plus every recipe you have added since, the README has your
+H1 and your prose, LICENSE has a year, and `.sublime-project` is named after the project. `--only=PATHS` narrows a
+sync to a comma-separated subset; naming a file that is deliberately not syncable is an error rather than a silent
+no-op.
+
+Four things stand between a sync and losing work:
+
+* **This repository itself is refused outright**, `--force` included. Its copies of these files are the
+  *unstripped* originals, marker blocks and all, so writing the rendered versions back would delete the very text
+  scaffolding reads. Every other guard would wave it through — the files are committed and there is Odin source
+  everywhere — so it is checked by name.
+* **The destination has to look like an Odin project** — a justfile *and* `.odin` source somewhere under it, at any
+  depth. A justfile alone is weak evidence, since `just` is a general-purpose runner; the check is what stops a sync
+  run in the wrong terminal tab from replacing an unrelated project's `.editorconfig` and `.gitignore`.
+* **The ols pin is carried over, not overwritten.** `.just/toolchain.just` holds `ols_tag` and `ols_sha256`, which
+  `just bump-ols` rewrites — live project state, and newer than the binary's copy whenever anybody has run it. A sync
+  reads your two lines out of your file and splices them into the new one, so it can never undo a bump or move a
+  hand-picked pin backwards. `--pin=template` takes the binary's pin instead; if either file is missing a pin line
+  the sync fails rather than guessing. See [Pinned tooling](#pinned-tooling).
+* **git is the undo.** Every file that would be *changed* is checked with `git status`, and a modified, untracked or
+  ignored one refuses the sync — commit or stash first, and the sync becomes a diff you can read and revert. A
+  directory git knows nothing about gets a warning and proceeds: having no history at all is your choice and applies
+  to your whole tree, where an uncommitted edit to exactly the file being replaced is a specific thing about to be
+  destroyed. `--force` skips both this and the Odin-source check.
+
+A sync only ever delivers what *that binary* has, so it reports its own version in the output — an old `odin-skel`
+will happily sync a project backwards.
 
 
 <!-- <<< skeleton-only -->

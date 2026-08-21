@@ -11,7 +11,7 @@ VERSION :: #config(SKEL_VERSION, "dev")
 // Subcommands the binary implements itself. The passthrough MUST refuse to forward any of these to
 // `just`, otherwise `just new` -> `odin-skel new` -> `just new` ping-pongs forever once a name is
 // added here but the dispatch below forgets it (see tools/DESIGN.md, Open items / Loop guard).
-OWNED_COMMANDS :: []string{"new", "add", "version", "doctor", "help"}
+OWNED_COMMANDS :: []string{"new", "add", "sync", "version", "doctor", "help"}
 
 HOMEPAGE :: "https://github.com/enerqi/odin-lang-skeleton"
 
@@ -31,9 +31,12 @@ Commands:
   new <dest> [name]   Scaffold a project into <dest>. The directory must not exist, or must be
                       empty apart from .git. [name] defaults to the directory's own name and is
                       used for the .sublime-project file.
-      --lib           Scaffold a library - an Odin source package that other projects copy into
-                      their tree and import - instead of an executable. The destination directory
-                      IS the package, and examples live in examples/ as single-file programs.
+      --lib           Scaffold a library - an Odin source package a consumer clones or copies into
+                      their own tree, frequently renaming it - instead of an executable. The
+                      destination directory IS the package: they import it by the path they put it
+                      at, or mount that directory as a collection and import it by name. Which of
+                      the two is their choice, not the library's. Examples live in examples/ as
+                      single-file programs.
       --pkg=<name>    The library's package name. Defaults to the project name with -, . and
                       spaces turned into underscores, since a directory name like "odin-mylib" is
                       not a legal package clause. Ignored without --lib.
@@ -60,6 +63,23 @@ Commands:
                       instruction counts under callgrind for a gate that does not drift.
                       Adds bench/ and the just recipes bench, bench_build, bench_cmp,
                       bench_count, bench_count_check, bench_lint, bench_save and rerun_bench.
+  sync [dir]          Overwrite a project's mechanical files with this binary's copies (default: the
+                      current directory). Only files nobody is expected to have edited: .editorconfig,
+                      .gitattributes, .gitignore, .just/editor.just, .just/toolchain.just and
+                      odinfmt.json. The justfile, README.md, LICENSE, your source and the .sublime
+                      files are never touched - they carry either your work or this project's own name.
+                      A file the project does not have yet is created, so a project scaffolded before a
+                      template existed picks it up.
+      --check         Write nothing; exit 1 if anything has drifted. For CI.
+      --dry-run       Write nothing; list what would change and exit 0.
+      --only=<paths>  Sync only these comma-separated paths, instead of the whole set.
+      --pin=<which>   keep (default) carries the project's own ols_tag and ols_sha256 across, so a
+                      sync never undoes "just bump-ols" or moves a hand-picked pin backwards.
+                      template takes this binary's pin instead.
+      --force         Skip the two overridable refusals: that the directory holds no .odin files, and
+                      that git reports a file to be overwritten as modified, untracked or ignored.
+                      The second is the only way back from a sync you did not want. This repository
+                      itself is refused either way.
   doctor              Check for odin, just, odinfmt, git and uv; report what is missing, what is
                       too old, and where to get it.
   version             Print this binary's version.
@@ -75,6 +95,9 @@ Examples:
   odin-skel new ../odin-toml --lib --pkg=toml   ... or name the package yourself
   odin-skel add bench                 add the benchmark harness to the project in this directory
   odin-skel add bench ../my-game      ... or to one somewhere else
+  odin-skel sync                      refresh this project's mechanical files from this binary
+  odin-skel sync --check              exit 1 if any of them has drifted (CI)
+  odin-skel sync ../my-game --dry-run show what a sync would change, and change nothing
   odin-skel doctor                    check the toolchain before starting
 
 After scaffolding, the project is driven by just (https://just.systems):
@@ -125,6 +148,95 @@ run :: proc() -> int {
 		}
 		dest := len(args) >= 3 ? args[2] : "."
 		return add(dest, args[1])
+	case "sync":
+		// Flags may appear anywhere after `sync`, like `new`; the single leftover positional is the
+		// directory, and it defaults to the one the user is standing in - somebody syncing their own
+		// project is already in it.
+		dest := ""
+		only: [dynamic]string
+		defer delete(only)
+		pin := Sync_Pin.Keep
+		check, dry_run, force := false, false, false
+		for i := 1; i < len(args); i += 1 {
+			arg := args[i]
+
+			switch arg {
+			case "--check":
+				check = true
+				continue
+			case "--dry-run":
+				dry_run = true
+				continue
+			case "--force":
+				force = true
+				continue
+			}
+
+			name, value: string
+			switch {
+			case strings.has_prefix(arg, "--only="):
+				name, value = "--only", arg[len("--only="):]
+			case strings.has_prefix(arg, "--pin="):
+				name, value = "--pin", arg[len("--pin="):]
+			case arg == "--only", arg == "--pin":
+				if i + 1 >= len(args) {
+					fmt.eprintfln(
+						"odin-skel: %s needs a value, e.g. %s=%s",
+						arg,
+						arg,
+						arg == "--pin" ? "keep" : ".gitignore",
+					)
+					return 2
+				}
+				i += 1
+				name, value = arg, args[i]
+			case:
+				if dest != "" {
+					fmt.eprintfln("odin-skel: `sync` takes one directory, got %q as well as %q", arg, dest)
+					fmt.eprintln("  to name individual files, use --only=<paths>")
+					return 2
+				}
+				dest = arg
+				continue
+			}
+
+			switch name {
+			case "--only":
+				if value == "" {
+					fmt.eprintln("odin-skel: --only needs at least one path, e.g. --only=.gitignore")
+					return 2
+				}
+				// Split rather than repeated: one flag holding a list reads the way the paths are
+				// written down, and there is no shell quoting to get wrong.
+				for path in strings.split(value, ",", context.temp_allocator) {
+					trimmed := strings.trim_space(path)
+					if trimmed != "" {
+						append(&only, trimmed)
+					}
+				}
+			case "--pin":
+				switch value {
+				case "keep":
+					pin = .Keep
+				case "template":
+					pin = .Template
+				case:
+					fmt.eprintfln("odin-skel: unknown --pin value %q", value)
+					fmt.eprintln("choices: keep, template")
+					return 2
+				}
+			}
+		}
+		// Both mean "write nothing", but they disagree about what that is worth: --check is a gate and
+		// fails on drift, --dry-run is a preview and succeeds. Silently picking one would make a CI
+		// job that passed both green whatever it found.
+		if check && dry_run {
+			fmt.eprintln(
+				"odin-skel: --check and --dry-run contradict each other - --check fails on drift, --dry-run does not",
+			)
+			return 2
+		}
+		return sync(dest if dest != "" else ".", only[:], pin, check, dry_run, force)
 	case "doctor":
 		return doctor()
 	case "help", "-h", "--help":

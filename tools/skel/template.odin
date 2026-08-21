@@ -20,7 +20,12 @@ Template_Kind :: enum {
 One embedded template file. `path` is repo-relative with forward slashes, as `git ls-files` reports it;
 `data` is the file's contents baked in at compile time.
 
-`feature` is the second axis, orthogonal to `kind`. An empty `feature` - the zero value, and the common
+`sync` marks a file `odin-skel sync` may overwrite in a project that already exists: no
+project-specific substitution, the same rendered output for both kinds, and configuration rather than
+code, so nobody is expected to have edited it. The list is driven by `SYNCABLE_FILES` in the justfile's
+`_embed` recipe, so it cannot drift from the embed list. See the doc comment on `sync`.
+
+`feature` is the third axis, orthogonal to `kind`. An empty `feature` - the zero value, and the common
 case - means the file is part of every scaffold. A named one means the file belongs to an optional
 feature that `new` never writes and `odin-skel add <feature>` writes on request. See FEATURES.
 
@@ -31,6 +36,7 @@ Template :: struct {
 	data:    string,
 	kind:    Template_Kind,
 	feature: string,
+	sync:    bool,
 }
 
 /*

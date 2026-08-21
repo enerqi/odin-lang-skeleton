@@ -725,6 +725,50 @@ Not decided; deliberately deferred.
   an infinite ping-pong. The passthrough must therefore refuse to forward any name the binary itself
   defines — a positive check, not a reliance on the table happening to stay correct. A recursion-depth
   environment guard set by the binary before it execs `just` is the cheap belt-and-braces version.
+* ~~a maintenance command for the mechanical files~~ — **decided: built, as `sync`.** Named `sync` rather
+  than `update` because `update` is taken by self-update below, and because it says what happens. Six
+  files: `.editorconfig`, `.gitattributes`, `.gitignore`, `.just/editor.just`, `.just/toolchain.just`
+  and `odinfmt.json`, tagged `sync = true` by `SYNCABLE_FILES` in the `_embed` recipe so the set cannot
+  become a second hand-maintained file list that rots against the embed list.
+
+  Three properties decide membership, and all three are load-bearing: no project-specific substitution
+  (which rules out the justfile's `--linker`, README.md's H1, LICENSE's year and the renamed
+  `.sublime-project`), the same rendered output for both project kinds (so `sync` never has to work out
+  which kind it is looking at — `test_syncable_templates_are_kind_independent` enforces it), and
+  configuration rather than code, so nobody is expected to have edited it. The `.sublime` files satisfy
+  the first two and fail the third: the copies are starting points, which is why they are excluded even
+  though they would copy cleanly.
+
+  **The pin.** `.just/toolchain.just` carries `ols_tag` / `ols_sha256`, which `just bump-ols` rewrites.
+  Overwriting it would undo a bump and can move a hand-picked pin *backwards*, for the same reason
+  `new --no-bump` exists. So `sync` reads the destination's two lines and splices them into the
+  rendered template, and fails rather than guessing when either file has no pin line. `--pin=template`
+  opts out. This is the whole reason the command needed designing rather than being a file copy.
+
+  **git is the undo**, not a backup directory: any file that would change is checked with
+  `git status --porcelain --untracked-files=all --ignored=matching`, and modified, untracked or ignored
+  refuses unless `--force`. `--ignored=matching` is not decoration — git searches *upwards* for a
+  repository, so a project under no repository of its own is answered by some ancestor (a home-directory
+  dotfiles repo answers for everything below it), and if that ancestor ignores the path, plain
+  `--porcelain` reports clean about files git has never heard of.
+
+  **The skeleton repository is refused by name**, `--force` included, on the presence of
+  `tools/skel/templates.odin` — a path `_embed` excludes, so no project ever has one. It is the single
+  destination where a sync is pure damage: the repository's copies are the *unstripped* originals, so
+  writing the rendered versions back deletes .gitattributes' `skeleton-only` block and the fragments'
+  `snippet-exclude` markers, which is the text scaffolding reads. Every other guard waves it through,
+  since the files are committed and there is Odin source everywhere.
+
+  **The destination must look like an Odin project**: a justfile *and* `.odin` source at any depth below
+  it. The justfile guard alone is what `add` uses, and it is weak evidence on its own — `just` is a
+  general-purpose runner, so it would let a sync in the wrong terminal tab replace an unrelated
+  project's `.editorconfig`. Any depth, because the layouts differ: a library keeps source at the root,
+  an executable may not, and a grown project may keep none at the top. `target/` and `.git` are skipped
+  and the walk is depth-bounded against symlink loops.
+
+  `--check` writes nothing and exits 1 on drift, the same contract `embed-check` has, so a project can
+  gate on "my mechanical files match odin-skel N". `--dry-run` is the preview that exits 0; the two are
+  refused together, since a CI job passing both would be green whatever it found.
 * `odin-skel update` (self-update). Windows cannot overwrite a running `.exe`, so the binary must
   rename itself before writing the replacement and clean up on next launch. This constrains where the
   binary may install itself, so it is worth designing before it is built

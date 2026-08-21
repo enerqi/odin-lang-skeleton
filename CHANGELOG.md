@@ -9,6 +9,45 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-21
+
+### Added
+
+- `odin-skel sync` brings a project's mechanical files back in line with the binary's templates:
+  `.editorconfig`, `.gitattributes`, `.gitignore`, `.just/editor.just`, `.just/toolchain.just` and `odinfmt.json`.
+  A file the project does not have yet is created, so a project scaffolded before a template existed picks it up.
+  `--check` writes nothing and exits 1 on drift (the contract `embed-check` has, so a project can gate CI on
+  "my mechanical files match odin-skel N"); `--dry-run` previews and exits 0; `--only=PATHS` narrows the run.
+  The set is tagged `sync = true` by `SYNCABLE_FILES` in the `_embed` recipe rather than listed a second time in
+  the tool, so it cannot rot against the embed list, and `just embed` now fails if a syncable name stops being a
+  tracked template.
+- Membership needs three properties, all of them load-bearing: no project-specific substitution, the same rendered
+  output for both project kinds, and configuration rather than code. That is why the justfile (`--linker`, plus
+  every recipe a project adds), README.md (its H1 and prose), LICENSE (a year), your source and the `.sublime`
+  files are never touched - the `.sublime` copies pass the first two tests and fail the third, being starting
+  points rather than settings. `test_syncable_templates_are_kind_independent` enforces the kind rule, which is what
+  lets `sync` skip working out whether it is looking at an executable or a library.
+- **The ols pin is carried over, not overwritten.** `.just/toolchain.just` holds `ols_tag` / `ols_sha256`, which
+  `just bump-ols` rewrites, so the project's copy is newer than the binary's whenever anybody has run it. A sync
+  splices the destination's two lines into the rendered template and fails rather than guessing if either file has
+  no pin line, so it can never undo a bump or move a hand-picked pin backwards - the hazard `new --no-bump` exists
+  for. `--pin=template` opts out.
+- The skeleton repository itself is refused by name, `--force` included, on the presence of
+  `tools/skel/templates.odin` - a path the embed excludes, so no scaffolded project has one. It is the one
+  destination where a sync is pure damage: this repository's copies are the *unstripped* originals, so writing the
+  rendered versions back would delete .gitattributes' `skeleton-only` block and the fragments' `snippet-exclude`
+  markers, which is the text scaffolding reads. Every other guard would wave it through, since the files are
+  committed and there is Odin source everywhere.
+- Two further guards against a sync landing where it was not wanted. The destination must hold a justfile **and** `.odin`
+  source at any depth: a justfile alone is what `add` checks and is weak evidence, since `just` is a
+  general-purpose runner, so it would let a sync in the wrong terminal tab replace an unrelated project's
+  `.editorconfig`. And git is the undo - any file that would change is checked with
+  `git status --porcelain --untracked-files=all --ignored=matching`, and modified, untracked or ignored refuses the
+  sync. `--ignored=matching` is not decoration: git searches upwards for a repository, so a project under none of
+  its own is answered by an ancestor, and if that ancestor ignores the path, plain `--porcelain` reports clean
+  about files git has never heard of. A directory git knows nothing about warns and proceeds; `--force` skips both
+  guards.
+
 ## [0.10.1] - 2026-08-21
 
 - minor comment refinement
@@ -866,7 +905,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.10.1...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.11.0...HEAD
+[0.11.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.11.0
 [0.10.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.10.1
 [0.10.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.10.0
 [0.9.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.9.0

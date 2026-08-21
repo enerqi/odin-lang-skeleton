@@ -43,7 +43,7 @@
 		// library projects:
 		{ "name": "project - just check", "shell_cmd": "just \"$folder/check\"" },
 		{ "name": "project - just example basic", "shell_cmd": "just \"$folder/example\" basic" },
-		{ "name": "project - just examples", "shell_cmd": "just \"$folder/examples\"" },
+		{ "name": "project - just examples-check", "shell_cmd": "just \"$folder/examples-check\"" },
 		{ "name": "project - just doc", "shell_cmd": "just \"$folder/doc\"" },
 		// either:
 		{ "name": "project - just test", "shell_cmd": "just \"$folder/test\"" },

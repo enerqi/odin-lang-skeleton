@@ -1,18 +1,5 @@
-/*
-SKELETON: this is the library's root package. Rename the directory, this file and the package clause
-below together - `odin-skel new --lib` does all three, deriving the package name from the project
-name.
-
-The directory IS the package: a consumer clones or copies this directory into their own tree and
-imports it by path, so the name they give the directory becomes the import path, and the name declared
-below is what binds in their file.
-
-	import toml "libs/toml"
-
-Keep the two the same unless there is a reason not to. A package name must be a valid Odin identifier,
-which a repository name often is not: `odin-toml` is a fine directory name and an illegal package
-clause, so `--lib` turns it into `odin_toml` unless `--pkg` says otherwise.
-*/
+// SKELETON: a comment directly above the package clause is the package's doc comment - `just doc`
+// prints it, and it is what a consumer reads first. Replace this with what your package is for.
 package mylib
 
 // Delete this and its test once there is something real here. It exists so that `just test` and

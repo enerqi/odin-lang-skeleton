@@ -3,18 +3,17 @@
 # `cmd.exe` starts in ~9ms and always available. just launches a shell per recipe line.
 #  - alternatives: `nu -c` ~41ms, `powershell -NoLogo -NoProfile -Command` ~143ms
 #  - cost: it is a poor language for a multi-line recipe, hence uv -> python preferred for more complex tasks
-set windows-shell := ["cmd.exe", "/c"]
+[windows]
+set shell := ["cmd.exe", "/c"]
+[unix]
 set shell := ["bash", "-c"]
-set unstable  # [script] feature - https://github.com/casey/just/issues/1479
+set minimum-version := "1.49.0"  # user-defined functions (1.49)
+set unstable  # user-defined functions
 set lazy
-
 # `python` alone is not a reliable cross-platform lookup (cf. python/python3/python3.x)
 # uv resolves/downloads on every platform and --no-project means no looking for pyproject.toml / local .venv
 # just recipes opt in with the bare `[script]` attribute (no interpreter argument)
 set script-interpreter := ["uv", "run", "--no-project", "-p", "3.14", "python"]
-
-# Newest just feature used below is user-defined functions (1.49). Keep the README and `odin-skel doctor` in step.
-set minimum-version := "1.49.0"
 
 main_name := "${1:main.exe}"
 test_main_name := "${2:test-main.exe}"
@@ -38,169 +37,16 @@ target_path(dir, name) := join("target", dir, name)
 # Which value to pick, and the lld-on-macOS and incremental-linking caveats: README, "Choosing a linker".
 linker := env_var_or_default("ODIN_LINKER", if os() == "windows" { "radlink" } else { "default" })
 
-
-# Suffix on a native executable, for the pinned tool paths below.
-exe_ext := if os() == "windows" { ".exe" } else { "" }
-
-# The pinned ols release; odinfmt ships inside it. Note odinfmt has no `--version` flag.
-# `just bump-ols` rewrites this and the digests below. README, "Pinned tooling".
-ols_tag := "dev-2026-06"
-
-# A hash and not just a tag, so a re-cut tag is caught rather than installed. One archive per platform,
-# digests published per asset; `just bump-ols` writes both lines.
-ols_plat := if os() == "windows" { "x86_64-pc-windows-msvc" } else if os() == "macos" { if arch() == "aarch64" { "arm64-darwin" } else { "x86_64-darwin" } } else { if arch() == "aarch64" { "arm64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" } }
-ols_sha256 := if ols_plat == "x86_64-pc-windows-msvc" { "08785a8ae2ef5073b9d2e27abae83a7a8000cc6503711d0a92a61e2900bddf9e" } else if ols_plat == "arm64-darwin" { "931bca3776491e7809fc5054fad1c95459c25e62af5492294b84c5950c1a5e36" } else if ols_plat == "x86_64-darwin" { "2e2d3c168ae8dc56d76574a95ebd998f7764b21d5da4dc1f4a66b1e880acbc9b" } else if ols_plat == "arm64-unknown-linux-gnu" { "423c28323223d229dea3b69bc49679dbadd6e4559dc5d6b50eb10ac708f9c9eb" } else { "d0b232947a258032979321626a54c3dba54e44ebd23be255a34eb254dfc679a3" }
-
-# Where versioned tool installs live; `\$ODIN_TOOLS` overrides the root. See README, "Pinned tooling".
-# `USERPROFILE` before `HOME` on Windows (note Git-bash parent sets `HOME=/c/Users/you`, an MSYS path)
-home_dir := if os() == "windows" { env_var_or_default("USERPROFILE", env_var_or_default("HOME", ".")) } else { env_var_or_default("HOME", ".") }
-odin_tools := env_var_or_default("ODIN_TOOLS", join(home_dir, ".odin-tools"))
-ols_install := join(odin_tools, "ols", ols_tag)
-
-# `ODINFMT=odinfmt just format` opts out of the pin and uses PATH; `ensure-odinfmt` then skips the download too.
-odinfmt_override := env_var_or_default("ODINFMT", "")
-odinfmt_bin := if odinfmt_override != "" { odinfmt_override } else { join(ols_install, "odinfmt" + exe_ext) }
-# Installed beside odinfmt from the same archive. For the editor setup - `just sublime-lsp-init`.
-ols_bin := join(ols_install, "ols" + exe_ext)
-
-# Optional features add their recipes by shipping a `.just` file, not by editing this one.
-# Lets `odin-skel add bench` be a plain copy, and `rm -rf bench/` the uninstall.
-# An imported file shares one namespace with this one, so `linker`, `target_path` and `mktarget_dirs`
-# below are all visible to it. Recipe names must not collide; the feature prefixes all of its own.
+# Optional features in same recipe namespace. `odin-skel add bench` to install, and `rm -rf bench/` to uninstall.
 import? 'bench/bench.just'
 
+# Here, not in .just/toolchain.just - what gets formatted is a project decision
 # `{{odinfmt_bin}}`, never a bare `odinfmt` - pins the binary for project consistency
 # ---
 # odinfmt every odin file under this directory or subdirectories
 [group('qa')]
 format: ensure-odinfmt
 	"{{odinfmt_bin}}" -w .
-
-# A shell test rather than depending on `fetch-ols` directly, which is a `[script]` recipe (uv/python overhead)
-# ---
-# make sure the pinned odinfmt is installed before formatting with it
-[group('toolchain')]
-[unix]
-@ensure-odinfmt:
-	test -n "{{odinfmt_override}}" || test -f "{{odinfmt_bin}}" || just fetch-ols
-
-# Nested `if`s because cmd has no short-circuit operator to write the unix line's `||` with.
-# ---
-# make sure the pinned odinfmt is installed before formatting with it
-[group('toolchain')]
-[windows]
-@ensure-odinfmt:
-	if "{{odinfmt_override}}"=="" if not exist "{{odinfmt_bin}}" just fetch-ols
-
-# Installs ols, odinfmt and the `builtin/` directory ols needs beside it - one archive holds all three -
-# into `\$ODIN_TOOLS/ols/<tag>/`, after checking it against `ols_sha256`. README, "Pinned tooling".
-#
-#     just fetch-ols            install if missing
-#     just fetch-ols --check    exit non-zero when missing, install nothing (CI)
-#     just fetch-ols --force    reinstall over an existing directory
-# ---
-# download the pinned ols + odinfmt into ~/.odin-tools, verified against its SHA-256
-[group('toolchain')]
-[script]
-fetch-ols *args:
-	import hashlib, os, shutil, stat, sys, tempfile, urllib.request, zipfile
-
-	TAG, PLAT, WANT = r"{{ols_tag}}", r"{{ols_plat}}", r"{{ols_sha256}}"
-	flags = r'''{{args}} '''.split()
-	check_only, force = "--check" in flags, "--force" in flags
-
-	# Passed in rather than re-derived: `\$ODIN_TOOLS` and the USERPROFILE-before-HOME rule are
-	# already applied above, and Python's `expanduser` does not agree with them on every machine.
-	dest = r"{{ols_install}}"
-	exe = ".exe" if "windows" in PLAT else ""
-
-	# All three, not just the directory: an odinfmt-only install from an older layout would otherwise
-	# read as a satisfied pin forever.
-	complete = all(
-		os.path.exists(os.path.join(dest, part))
-		for part in ("ols" + exe, "odinfmt" + exe, "builtin")
-	)
-	if complete and not force:
-		print(dest + ": present")
-		sys.exit(0)
-	if check_only:
-		sys.exit(dest + ": missing or incomplete - run `just fetch-ols`")
-
-	url = os.environ.get("OLS_URL") or "https://github.com/DanielGavin/ols/releases/download/" + TAG + "/ols-" + PLAT + ".zip"
-	fd, archive = tempfile.mkstemp(suffix=".zip")
-	os.close(fd)
-	try:
-		print("fetching " + url)
-		try:
-			urllib.request.urlretrieve(url, archive)
-		except OSError as err:
-			# URLError and HTTPError are both OSError subclasses.
-			sys.exit("  " + str(err) + "\n  set OLS_URL to fetch the archive from somewhere else")
-
-		h = hashlib.sha256()
-		with open(archive, "rb") as f:
-			for chunk in iter(lambda: f.read(1 << 20), b""):
-				h.update(chunk)
-		got = h.hexdigest()
-		if got != WANT:
-			sys.exit(
-				"  sha256   " + got + "\n"
-				"  expected " + WANT + "\n"
-				"  refusing to install: this is not the pinned ols. A re-cut " + TAG + " has to be\n"
-				"  adopted deliberately - `just bump-ols " + TAG + "` rewrites the digest."
-			)
-
-		# Staged in a sibling `.part` directory and renamed into place: the guards treat the path existing
-		# as the pin being satisfied, so a half-extracted install would be permanently convincing.
-		staging = dest + ".part"
-		shutil.rmtree(staging, ignore_errors=True)
-		os.makedirs(staging)
-		with zipfile.ZipFile(archive) as z:
-			# By prefix, not exact name: the release ships platform-suffixed binaries
-			# (`ols-x86_64-pc-windows-msvc.exe`), and one that drops the suffix still works.
-			for member in z.infolist():
-				if member.is_dir():
-					continue
-				base = os.path.basename(member.filename)
-				if base.startswith("odinfmt"):
-					out = os.path.join(staging, "odinfmt" + exe)
-				elif base.startswith("ols"):
-					out = os.path.join(staging, "ols" + exe)
-				elif "builtin/" in member.filename.replace("\\", "/"):
-					out = os.path.join(staging, "builtin", base)
-				else:
-					continue
-				os.makedirs(os.path.dirname(out), exist_ok=True)
-				with open(out, "wb") as f:
-					f.write(z.read(member))
-
-		for name in ("ols" + exe, "odinfmt" + exe):
-			path = os.path.join(staging, name)
-			if not os.path.exists(path):
-				sys.exit("  archive contained no " + name + " - did the release layout change?")
-			# The zip's mode bits are not usable on every platform. Harmless on Windows; without it the
-			# unix binary is not runnable.
-			os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-		if not os.path.isdir(os.path.join(staging, "builtin")):
-			# ols hard-errors without it, so an install missing it is a server that starts knowing nothing.
-			sys.exit("  archive contained no builtin/ directory - did the release layout change?")
-
-		if os.path.isdir(dest):
-			old = dest + ".old"
-			shutil.rmtree(old, ignore_errors=True)
-			try:
-				os.rename(dest, old)
-			except OSError as err:
-				# Windows refuses to move a directory holding a running executable - the editor's ols.
-				sys.exit("  cannot replace " + dest + ": " + str(err) + "\n  close any editor running ols and retry")
-			shutil.rmtree(old, ignore_errors=True)
-		os.makedirs(os.path.dirname(dest), exist_ok=True)
-		os.rename(staging, dest)
-		print("  installed " + dest)
-	finally:
-		if os.path.exists(archive):
-			os.remove(archive)
-
 
 # `-vet-tabs` is the only compiler-side enforcement of .editorconfig's `indent_style = tab`; not implied by
 # `-strict-style`. Nothing in the Odin toolchain checks line endings - those are held in place by .gitattributes and
@@ -399,47 +245,156 @@ diagnose *args: mktarget_dirs
 	odin build . -debug -microarch:native -show-more-timings -show-debug-messages -show-timings -linker:{{linker}} -out:{{ target_path("debug", main_name) }} {{args}}
 
 
-# Cross platform: Sublime then offers them in every window. The `.sublime-project` file is
-# project-local and intentionally NOT installed. Override the destination with the SUBLIME_USER_DIR
-# env var if your setup is non-standard.
-# ---
-# install the editor snippets + build systems into Sublime Text's global `Packages/User` directory
-[group('editor')]
-[script]
-install-sublime:
-	import os, sys, shutil
-	home = os.path.expanduser("~")
-	override = os.environ.get("SUBLIME_USER_DIR")
-	if override:
-		candidates = [override]
-	elif sys.platform == "win32":
-		appdata = os.environ.get("APPDATA", os.path.join(home, "AppData", "Roaming"))
-		candidates = [os.path.join(appdata, p, "Packages", "User") for p in ("Sublime Text", "Sublime Text 3")]
-	elif sys.platform == "darwin":
-		base = os.path.join(home, "Library", "Application Support")
-		candidates = [os.path.join(base, p, "Packages", "User") for p in ("Sublime Text", "Sublime Text 3")]
-	else:
-		base = os.path.join(home, ".config")
-		candidates = [os.path.join(base, p, "Packages", "User") for p in ("sublime-text", "sublime-text-3")]
 
-	# prefer a candidate whose Sublime data dir (the `Packages` parent) already exists
-	target = next((c for c in candidates if os.path.isdir(os.path.dirname(c))), None)
-	if target is None:
-		sys.exit(
-			"could not find a Sublime Text Packages directory. Set SUBLIME_USER_DIR to your "
-			"Packages/User folder and retry. Tried: " + ", ".join(candidates)
-		)
-	os.makedirs(target, exist_ok=True)
-	for name in (
-		"Odin-skeleton.sublime-snippet",
-		"Just-Odin.sublime-snippet",
-		"Just-Odin-lib.sublime-snippet",
-		"Odin.sublime-build",
-		"OdinJustTarget.sublime-build",
-	):
-		shutil.copy2(os.path.join(".sublime", name), os.path.join(target, name))
-		print("installed " + name)
-	print("-> " + target)
+
+# Suffix on a native executable, for the pinned tool paths below.
+exe_ext := if os() == "windows" { ".exe" } else { "" }
+
+# The pinned ols release; odinfmt ships inside it. Note odinfmt has no `--version` flag.
+# `just bump-ols` rewrites this and the digests below. README, "Pinned tooling".
+ols_tag := "dev-2026-06"
+
+# A hash and not just a tag, so a re-cut tag is caught rather than installed. One archive per platform,
+# digests published per asset; `just bump-ols` writes both lines.
+ols_plat := if os() == "windows" { "x86_64-pc-windows-msvc" } else if os() == "macos" { if arch() == "aarch64" { "arm64-darwin" } else { "x86_64-darwin" } } else { if arch() == "aarch64" { "arm64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" } }
+ols_sha256 := if ols_plat == "x86_64-pc-windows-msvc" { "08785a8ae2ef5073b9d2e27abae83a7a8000cc6503711d0a92a61e2900bddf9e" } else if ols_plat == "arm64-darwin" { "931bca3776491e7809fc5054fad1c95459c25e62af5492294b84c5950c1a5e36" } else if ols_plat == "x86_64-darwin" { "2e2d3c168ae8dc56d76574a95ebd998f7764b21d5da4dc1f4a66b1e880acbc9b" } else if ols_plat == "arm64-unknown-linux-gnu" { "423c28323223d229dea3b69bc49679dbadd6e4559dc5d6b50eb10ac708f9c9eb" } else { "d0b232947a258032979321626a54c3dba54e44ebd23be255a34eb254dfc679a3" }
+
+# Where versioned tool installs live; `\$ODIN_TOOLS` overrides the root. See README, "Pinned tooling".
+# `USERPROFILE` before `HOME` on Windows (note Git-bash parent sets `HOME=/c/Users/you`, an MSYS path)
+home_dir := if os() == "windows" { env_var_or_default("USERPROFILE", env_var_or_default("HOME", ".")) } else { env_var_or_default("HOME", ".") }
+odin_tools := env_var_or_default("ODIN_TOOLS", join(home_dir, ".odin-tools"))
+ols_install := join(odin_tools, "ols", ols_tag)
+
+# `ODINFMT=odinfmt just format` opts out of the pin and uses PATH; `ensure-odinfmt` then skips the download too.
+odinfmt_override := env_var_or_default("ODINFMT", "")
+odinfmt_bin := if odinfmt_override != "" { odinfmt_override } else { join(ols_install, "odinfmt" + exe_ext) }
+# Installed beside odinfmt from the same archive. For the editor setup - `just sublime-lsp-init`.
+ols_bin := join(ols_install, "ols" + exe_ext)
+
+# A shell test rather than depending on `fetch-ols` directly, which is a `[script]` recipe (uv/python overhead)
+# ---
+# make sure the pinned odinfmt is installed before formatting with it
+[group('toolchain')]
+[unix]
+@ensure-odinfmt:
+	test -n "{{odinfmt_override}}" || test -f "{{odinfmt_bin}}" || just fetch-ols
+
+# Nested `if`s because cmd has no short-circuit operator to write the unix line's `||` with.
+# ---
+# make sure the pinned odinfmt is installed before formatting with it
+[group('toolchain')]
+[windows]
+@ensure-odinfmt:
+	if "{{odinfmt_override}}"=="" if not exist "{{odinfmt_bin}}" just fetch-ols
+
+# Installs ols, odinfmt and the `builtin/` directory ols needs beside it - one archive holds all three -
+# into `\$ODIN_TOOLS/ols/<tag>/`, after checking it against `ols_sha256`. README, "Pinned tooling".
+#
+#     just fetch-ols            install if missing
+#     just fetch-ols --check    exit non-zero when missing, install nothing (CI)
+#     just fetch-ols --force    reinstall over an existing directory
+# ---
+# download the pinned ols + odinfmt into ~/.odin-tools, verified against its SHA-256
+[group('toolchain')]
+[script]
+fetch-ols *args:
+	import hashlib, os, shutil, stat, sys, tempfile, urllib.request, zipfile
+
+	TAG, PLAT, WANT = r"{{ols_tag}}", r"{{ols_plat}}", r"{{ols_sha256}}"
+	flags = r'''{{args}} '''.split()
+	check_only, force = "--check" in flags, "--force" in flags
+
+	# Passed in rather than re-derived: `\$ODIN_TOOLS` and the USERPROFILE-before-HOME rule are
+	# already applied above, and Python's `expanduser` does not agree with them on every machine.
+	dest = r"{{ols_install}}"
+	exe = ".exe" if "windows" in PLAT else ""
+
+	# All three, not just the directory: an odinfmt-only install from an older layout would otherwise
+	# read as a satisfied pin forever.
+	complete = all(
+		os.path.exists(os.path.join(dest, part))
+		for part in ("ols" + exe, "odinfmt" + exe, "builtin")
+	)
+	if complete and not force:
+		print(dest + ": present")
+		sys.exit(0)
+	if check_only:
+		sys.exit(dest + ": missing or incomplete - run `just fetch-ols`")
+
+	url = os.environ.get("OLS_URL") or "https://github.com/DanielGavin/ols/releases/download/" + TAG + "/ols-" + PLAT + ".zip"
+	fd, archive = tempfile.mkstemp(suffix=".zip")
+	os.close(fd)
+	try:
+		print("fetching " + url)
+		try:
+			urllib.request.urlretrieve(url, archive)
+		except OSError as err:
+			# URLError and HTTPError are both OSError subclasses.
+			sys.exit("  " + str(err) + "\n  set OLS_URL to fetch the archive from somewhere else")
+
+		h = hashlib.sha256()
+		with open(archive, "rb") as f:
+			for chunk in iter(lambda: f.read(1 << 20), b""):
+				h.update(chunk)
+		got = h.hexdigest()
+		if got != WANT:
+			sys.exit(
+				"  sha256   " + got + "\n"
+				"  expected " + WANT + "\n"
+				"  refusing to install: this is not the pinned ols. A re-cut " + TAG + " has to be\n"
+				"  adopted deliberately - `just bump-ols " + TAG + "` rewrites the digest."
+			)
+
+		# Staged in a sibling `.part` directory and renamed into place: the guards treat the path existing
+		# as the pin being satisfied, so a half-extracted install would be permanently convincing.
+		staging = dest + ".part"
+		shutil.rmtree(staging, ignore_errors=True)
+		os.makedirs(staging)
+		with zipfile.ZipFile(archive) as z:
+			# By prefix, not exact name: the release ships platform-suffixed binaries
+			# (`ols-x86_64-pc-windows-msvc.exe`), and one that drops the suffix still works.
+			for member in z.infolist():
+				if member.is_dir():
+					continue
+				base = os.path.basename(member.filename)
+				if base.startswith("odinfmt"):
+					out = os.path.join(staging, "odinfmt" + exe)
+				elif base.startswith("ols"):
+					out = os.path.join(staging, "ols" + exe)
+				elif "builtin/" in member.filename.replace("\\", "/"):
+					out = os.path.join(staging, "builtin", base)
+				else:
+					continue
+				os.makedirs(os.path.dirname(out), exist_ok=True)
+				with open(out, "wb") as f:
+					f.write(z.read(member))
+
+		for name in ("ols" + exe, "odinfmt" + exe):
+			path = os.path.join(staging, name)
+			if not os.path.exists(path):
+				sys.exit("  archive contained no " + name + " - did the release layout change?")
+			# The zip's mode bits are not usable on every platform. Harmless on Windows; without it the
+			# unix binary is not runnable.
+			os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+		if not os.path.isdir(os.path.join(staging, "builtin")):
+			# ols hard-errors without it, so an install missing it is a server that starts knowing nothing.
+			sys.exit("  archive contained no builtin/ directory - did the release layout change?")
+
+		if os.path.isdir(dest):
+			old = dest + ".old"
+			shutil.rmtree(old, ignore_errors=True)
+			try:
+				os.rename(dest, old)
+			except OSError as err:
+				# Windows refuses to move a directory holding a running executable - the editor's ols.
+				sys.exit("  cannot replace " + dest + ": " + str(err) + "\n  close any editor running ols and retry")
+			shutil.rmtree(old, ignore_errors=True)
+		os.makedirs(os.path.dirname(dest), exist_ok=True)
+		os.rename(staging, dest)
+		print("  installed " + dest)
+	finally:
+		if os.path.exists(archive):
+			os.remove(archive)
 
 
 # Rewrites the `ols_tag` and `ols_sha256` lines from GitHub's release API, so a bump is one command
@@ -453,7 +408,7 @@ install-sublime:
 # `/releases/latest` skips prereleases, which keeps the continuously re-cut `nightly` tag out of a pin
 # that only means anything if the bytes are fixed. Uses `\$GITHUB_TOKEN` / `\$GH_TOKEN` when set.
 # ---
-# rewrite the ols pin in this justfile to the latest release (or --check for whether one exists)
+# rewrite the ols pin in .just/toolchain.just to the latest release (or --check for whether one exists)
 [group('toolchain')]
 [script]
 bump-ols *args:
@@ -512,7 +467,7 @@ bump-ols *args:
 		if asset is None:
 			sys.exit(
 				"  release " + tag + " has no " + name + "\n"
-				"  every platform this justfile can run on needs one, so a partial release is not\n"
+				"  every platform this project can run on needs one, so a partial release is not\n"
 				"  something to pin - got: " + ", ".join(sorted(assets))
 			)
 		# Published per asset, saving ~5 MB of downloads. A recent API field, so older releases fall
@@ -540,20 +495,64 @@ bump-ols *args:
 	arms = ["if ols_plat == \"%s\" { \"%s\" }" % (p, digests[p]) for p in PLATS[:-1]]
 	line = "ols_sha256 := " + " else ".join(arms) + " else { \"" + digests[PLATS[-1]] + "\" }"
 
-	with open("justfile", encoding="utf-8", newline="") as f:
+	with open(".just/toolchain.just", encoding="utf-8", newline="") as f:
 		text = f.read()
 	# Anchored to the start of a line so the spelling in this recipe's own comments cannot be rewritten.
 	text, tags = re.subn(r'^ols_tag := ".*"\$', 'ols_tag := "' + tag + '"', text, count=1, flags=re.M)
 	text, shas = re.subn(r"^ols_sha256 := .*\$", line.replace("\\", "\\\\"), text, count=1, flags=re.M)
 	if tags != 1 or shas != 1:
 		sys.exit("  could not find the `ols_tag` / `ols_sha256` lines to rewrite - edit them by hand")
-	with open("justfile", "w", encoding="utf-8", newline="") as f:
+	with open(".just/toolchain.just", "w", encoding="utf-8", newline="") as f:
 		f.write(text)
 
 	print("")
-	print("rewrote the pin in justfile. Next:")
+	print("rewrote the pin in .just/toolchain.just. Next:")
 	print("  just fetch-ols --force    install " + tag + " (the digests above are checked on the way in)")
 	print("  just format               a new odinfmt may reformat files you did not edit - review that diff")
+
+
+# Cross platform: Sublime then offers them in every window. The `.sublime-project` file is
+# project-local and intentionally NOT installed. Override the destination with the SUBLIME_USER_DIR
+# env var if your setup is non-standard.
+# ---
+# install the editor snippets + build systems into Sublime Text's global `Packages/User` directory
+[group('editor')]
+[script]
+install-sublime:
+	import os, sys, shutil
+	home = os.path.expanduser("~")
+	override = os.environ.get("SUBLIME_USER_DIR")
+	if override:
+		candidates = [override]
+	elif sys.platform == "win32":
+		appdata = os.environ.get("APPDATA", os.path.join(home, "AppData", "Roaming"))
+		candidates = [os.path.join(appdata, p, "Packages", "User") for p in ("Sublime Text", "Sublime Text 3")]
+	elif sys.platform == "darwin":
+		base = os.path.join(home, "Library", "Application Support")
+		candidates = [os.path.join(base, p, "Packages", "User") for p in ("Sublime Text", "Sublime Text 3")]
+	else:
+		base = os.path.join(home, ".config")
+		candidates = [os.path.join(base, p, "Packages", "User") for p in ("sublime-text", "sublime-text-3")]
+
+	# prefer a candidate whose Sublime data dir (the `Packages` parent) already exists
+	target = next((c for c in candidates if os.path.isdir(os.path.dirname(c))), None)
+	if target is None:
+		sys.exit(
+			"could not find a Sublime Text Packages directory. Set SUBLIME_USER_DIR to your "
+			"Packages/User folder and retry. Tried: " + ", ".join(candidates)
+		)
+	os.makedirs(target, exist_ok=True)
+	for name in (
+		"Odin-skeleton.sublime-snippet",
+		"Just-Odin.sublime-snippet",
+		"Just-Odin-lib.sublime-snippet",
+		"Odin.sublime-build",
+		"OdinJustTarget.sublime-build",
+	):
+		shutil.copy2(os.path.join(".sublime", name), os.path.join(target, name))
+		print("installed " + name)
+	print("-> " + target)
+
 
 
 

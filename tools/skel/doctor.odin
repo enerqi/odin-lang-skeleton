@@ -91,9 +91,9 @@ CHECKS :: []Tool_Check {
 		// `python`, so a version-pinned interpreter downloads itself instead of depending on whatever
 		// `python` happens to resolve to on the machine (unpinned on scoop, distro-versioned on Linux).
 		// Deliberately not a recipe list: this one binary scaffolds both project kinds, and the
-		// `[script]` recipes differ between them - `examples` exists only in a library, the editor-setup
+		// `[script]` recipes differ between them - `examples-check` exists only in a library, the editor-setup
 		// ones in both.
-		note       = "`just format` needs it (the pinned odinfmt is fetched by a `[script]` recipe), as do editor setup everywhere and `examples` in a library",
+		note       = "`just format` needs it (the pinned odinfmt is fetched by a `[script]` recipe), as do editor setup everywhere and `examples-check` in a library",
 		install    = "https://docs.astral.sh/uv/getting-started/installation/",
 	},
 	{

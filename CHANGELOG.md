@@ -9,6 +9,53 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-21
+
+### Changed
+
+- The justfile's helper recipes moved into two imported fragments, `.just/toolchain.just` (`fetch-ols`,
+  `bump-ols`, `ensure-odinfmt` and the `ols_tag` / `ols_sha256` pin) and `.just/editor.just` (`install-sublime`,
+  `sublime-build-init`, `sublime-lsp-init`, `ols-config`). The root justfile drops from 1376 to 881 lines and holds
+  what a project edits as it grows; `just --list` is unchanged, because an imported recipe keeps its `[group]`. The
+  imports are mandatory (`import`, not the `import?` that carries the optional `bench/` feature) so a missing
+  fragment is an error rather than recipes silently vanishing. All three files share one namespace, so a fragment
+  reads `linker` and `target_path` from the justfile and `.just/editor.just` reads `ols_bin` from
+  `.just/toolchain.just`. `just bump-ols` now rewrites the pin in `.just/toolchain.just`, and `odin-skel new` reads
+  the shipped `ols_tag` from there.
+- `format` deliberately stays in the justfile: which directories are formatted, and with what flags, is a project
+  decision worth having in the file you already edit. Only the *binary* is pinned, so `odinfmt_bin` and the
+  `ensure-odinfmt` install guard come from `.just/toolchain.just` - which makes `format` the recipe that proves the
+  namespace is shared in the justfile-reads-fragment direction.
+- `odin-skel new` now runs the new project's `just format` after a bump that actually moved the ols pin, and takes
+  `--no-bump`. The bump alone only relocated the problem it exists to solve: the files are written from templates
+  formatted by whichever odinfmt the *skeleton* pinned, so pointing the project at a newer one left the first
+  `just format` churning files the user never wrote - the same reformatting diff, moved from "whenever somebody
+  bumps" to "the user's first format", once there is history for it to be noise in. Whether the pin moved is decided
+  by reading `ols_tag` back out of `.just/toolchain.just`, not by parsing `bump-ols` output, and nothing runs when it
+  did not move. `--no-bump` keeps the shipped pin but still installs it, for a pin chosen on purpose: `bump-ols`
+  adopts whatever GitHub marks *latest*, which these date-shaped tags do not order, so it can move a hand-picked pin
+  backwards - and until now the only way to refuse was `--offline`, which skipped the install too.
+- CI covers the non-offline scaffold path for the first time. Every scaffold step passed `--offline`, so
+  `pin_and_install_ols` - the one path that touches the network, and the one every first-time user hits - was never
+  executed by CI; the `.just/` split in this release repointed `bump-ols` and `toolchain_ols_tag` at a new file, and
+  nothing in CI would have noticed if that had been wrong. A Linux-only step now scaffolds without `--offline` and
+  asserts the invariant rather than the outcome (which depends on what ols has released): the pin lines are intact,
+  `just --evaluate` resolves, the project builds, and `just format` on the fresh scaffold changes no bytes. The
+  `--offline` scaffolds additionally grep the two anchored pin lines, so a repointed path fails on every platform.
+- The library kind's `examples` recipe is now `examples-check`. `examples` named its inputs and not what it did with
+  them - it type checks every file in `examples/`, builds nothing and runs nothing - and next to `example NAME`, which
+  does run one, the pair read as singular-versus-plural rather than run-versus-check. The `-check` suffix is what
+  `embed-check` and `snippets-check` already use for the same job: a guard that fails when two things have drifted, in
+  this case the examples against the API they document. `OdinJustTarget.sublime-build`'s variant is renamed with it;
+  that file is installed into Sublime's global `Packages/User`, so a project scaffolded before this reads the new name
+  and the variant simply fails until its justfile is updated.
+- The `.just/` fragments are marker-stripped by `odin-skel new` exactly as the justfile, README and .gitattributes
+  are - a prefix test rather than a fourth name in the list, so a fragment added later is covered without touching
+  that code. `just snippets` concatenates the justfile and both fragments into each Justfile snippet: a snippet is
+  pasted into one buffer, and one holding only the root file would emit a justfile whose mandatory imports resolve to
+  nothing. The `import` lines and the fragments' header notes sit in `snippet-exclude` blocks, which is what keeps
+  the concatenation a valid single file.
+
 ## [0.9.0] - 2026-08-19
 
 ### Added
@@ -815,7 +862,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.9.0...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.10.0...HEAD
+[0.10.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.10.0
 [0.9.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.9.0
 [0.8.3]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.3
 [0.8.2]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.8.2

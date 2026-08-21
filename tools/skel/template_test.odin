@@ -68,10 +68,88 @@ test_strip_on_the_real_justfile :: proc(t: ^testing.T) {
 	for gone in ([]string{"new dest", "build_skel", "lint_skel", "test_skel", "_embed", "_snippets"}) {
 		testing.expectf(t, !strings.contains(got, gone), "skeleton-only recipe %q leaked", gone)
 	}
-	for kept in ([]string{"run_debug", "run_release_nochecks", "sanitize", "mktarget_dirs"}) {
+	for kept in ([]string{"run_debug", "run_release_nochecks", "sanitize", "mktarget_dirs", "format:"}) {
 		testing.expectf(t, strings.contains(got, kept), "template recipe %q was stripped", kept)
 	}
 	testing.expect(t, !strings.contains(got, "# >>>"), "a marker line leaked")
+}
+
+// The justfile's recipe fragments are stripped like the justfile itself, so they get the same case.
+// .just/editor.just carries a `snippet-exclude` block whose marker lines must go while its recipes
+// stay; both files must be in TEMPLATES at all, or a scaffold writes a justfile whose (mandatory)
+// `import` names a file that is not there.
+@(test)
+test_strip_on_the_justfile_fragments :: proc(t: ^testing.T) {
+	Fragment :: struct {
+		path: string,
+		kept: []string,
+	}
+	fragments := []Fragment {
+		{TOOLCHAIN_FRAGMENT, {"fetch-ols", "bump-ols", "ensure-odinfmt", "ols_tag := \""}},
+		{FRAGMENT_DIR + "editor.just", {"install-sublime", "sublime-build-init", "sublime-lsp-init", "ols-config"}},
+	}
+
+	for fragment in fragments {
+		source := ""
+		for tmpl in TEMPLATES {
+			if tmpl.path == fragment.path {
+				source = tmpl.data
+				break
+			}
+		}
+		testing.expectf(t, source != "", "%s missing from TEMPLATES - run `just embed`", fragment.path)
+		if source == "" {
+			continue
+		}
+
+		for kind in ([]Project_Kind{.Exe, .Lib}) {
+			got := strip_marked_blocks(source, drop_names(kind))
+			defer delete(got)
+			for kept in fragment.kept {
+				testing.expectf(
+					t,
+					strings.contains(got, kept),
+					"%s lost %q for a %v project",
+					fragment.path,
+					kept,
+					kind,
+				)
+			}
+			testing.expectf(t, !strings.contains(got, "# >>>"), "%s leaked a marker line", fragment.path)
+			testing.expectf(t, !strings.contains(got, "# <<<"), "%s leaked a marker line", fragment.path)
+		}
+	}
+}
+
+// The fragment imports are NOT optional, unlike the feature import: both files always ship, so the
+// lines have to survive the strip for either kind. A line lost to a kind marker block would leave a
+// justfile that does not parse at all.
+@(test)
+test_justfile_imports_its_fragments :: proc(t: ^testing.T) {
+	source := ""
+	for tmpl in TEMPLATES {
+		if tmpl.path == "justfile" {
+			source = tmpl.data
+			break
+		}
+	}
+	testing.expect(t, source != "", "justfile missing from TEMPLATES - run `just embed`")
+
+	for kind in ([]Project_Kind{.Exe, .Lib}) {
+		stripped := strip_marked_blocks(source, drop_names(kind))
+		defer delete(stripped)
+		for path in ([]string{TOOLCHAIN_FRAGMENT, FRAGMENT_DIR + "editor.just"}) {
+			want := strings.concatenate({"import '", path, "'"}, context.allocator)
+			defer delete(want)
+			testing.expectf(
+				t,
+				strings.contains(stripped, want),
+				"the %v justfile has no `%s` line, so it would not parse",
+				kind,
+				want,
+			)
+		}
+	}
 }
 
 // .gitattributes is the third stripped template. Its `linguist-generated` rules name `tools/`, which
@@ -422,7 +500,7 @@ test_sublime_build_serves_both_kinds :: proc(t: ^testing.T) {
 			"project - just diagnose",
 			"project - just check",
 			"project - just doc",
-			"project - just examples",
+			"project - just examples-check",
 			"project - just test\"",
 			"project - just test_sanitize",
 		}) {

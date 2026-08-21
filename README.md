@@ -133,10 +133,22 @@ usually it was just `git init`-ed; any other content makes it refuse). `NAME` de
 
 A scaffold finishes by running the *new project's own* `just bump-ols` and `just fetch-ols`: the ols pin the
 templates carry is as old as the last `odin-skel` release, so without this a new project starts several releases
-behind and the first person to bump it takes a reformatting diff across files nobody edited. Both steps only warn
-on failure — the files are written and correct by then, and each warning names the one command that fixes it.
-`--offline` skips both (it is also the last step, so everything before it is purely local). See
-[Pinned tooling](#pinned-tooling).
+behind and the first person to bump it takes a reformatting diff across files nobody edited. **If the bump actually
+moved the pin, `just format` runs too** — the files were written from templates formatted by whatever odinfmt the
+*skeleton* pinned, so without it that same reformatting diff just reappears on your first `format`, against files
+you never wrote and after there is history to review it against. A fresh scaffold is the cheapest possible place
+to absorb it. All three steps only warn on failure — the files are written and correct by then, and each warning
+names the one command that fixes it.
+
+Two ways to opt out, because they are different wishes:
+
+* `--no-bump` keeps the pin the templates ship with, and still installs it. For a pin you chose on purpose:
+  `/releases/latest` is *the release GitHub marks latest*, which these date-shaped tags do not order, so a bump can
+  move a hand-picked pin backwards.
+* `--offline` skips the whole step — no API call, no download, no format. Everything before it is purely local, so
+  an offline scaffold is still a complete one.
+
+See [Pinned tooling](#pinned-tooling).
 
 Add `--linker=VALUE` (`default`, `lld`, `radlink` or `mold`) to pin the new project's linker for every platform
 instead of inheriting the per-OS default — see [Choosing a linker](#choosing-a-linker).
@@ -145,7 +157,7 @@ Add `--lib` to scaffold a **library** rather than an executable — an Odin sour
 into their tree and import, with the destination directory as the package itself and examples under `examples/`.
 The package name is derived from `NAME` by turning `-`, `.` and spaces into underscores (`odin-toml` → `odin_toml`),
 since a directory name is not always a legal `package` clause; `--pkg=NAME` overrides it. A library project gets
-`just check`, `just example NAME`, `just examples` and `just doc` in place of the `run_*` / `rerun_*` build ladder,
+`just check`, `just example NAME`, `just examples-check` and `just doc` in place of the `run_*` / `rerun_*` build ladder,
 which has nothing to build.
 
 ```
@@ -164,9 +176,10 @@ are rewritten rather than copied verbatim:
 * the skeleton's [Unlicense](https://unlicense.org) `LICENSE` is replaced with a fresh [Zlib](https://opensource.org/license/zlib)
   `LICENSE` (matching the Odin project's own license)
 * the `justfile` is emitted without its `# >>> skeleton-only` recipes (`new`, `snippets`, `snippets-check`) — those
-  only maintain this skeleton, not a real project. `README.md` and `.gitattributes` carry the same markers and get the
-  same treatment: the README sections documenting those recipes, and the `linguist-generated` rules naming `tools/`,
-  which a scaffolded project never receives
+  only maintain this skeleton, not a real project. `README.md`, `.gitattributes` and the justfile's `.just/` recipe
+  fragments carry the same markers and get the same treatment: the README sections documenting those recipes, the
+  `linguist-generated` rules naming `tools/`, which a scaffolded project never receives, and the fragments' own
+  header notes
 * the justfile's `linker` default is rewritten when `--linker` is passed
 
 The `.sublime-snippet` files are copied so you stay aware of them, but treat them as a one-off starting point (the
@@ -216,7 +229,7 @@ import "libs/toml"                  # or through a collection: -collection:libs=
 ├── <pkg>_test.odin
 ├── examples/
 │   └── basic.odin       <- package main, built with -file
-└── justfile  README.md  ...
+└── justfile  .just/  README.md  ...
 ```
 
 **The package name must be a valid Odin identifier**, which a repository name often is not: `odin-toml` is a fine
@@ -227,7 +240,7 @@ underscores, or takes `--pkg=NAME` if you would rather choose.
 `main` procedures colliding. In `-file` mode a relative import resolves against the file's own directory, so an
 example imports `".."` — one level, not two. Get it wrong and Odin reports
 `Syntax Error: Empty directory that contains no .odin files: ../..`, which names the path but not the reason.
-`just examples` type checks all of them, which is what stops an API change from quietly invalidating the docs.
+`just examples-check` type checks all of them, which is what stops an API change from quietly invalidating the docs.
 
 **Tests live in the package**, as `<pkg>_test.odin` beside the source, so they can reach `@(private)` symbols. The
 cost is that a consumer building the package also builds `import "core:testing"`, and optimization does not remove
@@ -248,7 +261,7 @@ package all
 @(require) import "../sub"
 ```
 
-`just examples` then type checks the whole tree through it. Two things are load-bearing here:
+`just examples-check` then type checks the whole tree through it. Two things are load-bearing here:
 
 * `@(require)` — without it an unreferenced import is dropped and the check passes vacuously
 * the explicit `lib` name on the `".."` import. Odin derives an import's name from its directory, and a
@@ -267,6 +280,19 @@ automates that — a `CHANGELOG.md` and a tagging habit are yours to add if you 
 A `justfile` is part of this opinionated setup and you may need to edit the tasks as new packages are added in
 sub-directories. [Just >=1.49](https://just.systems/) is a CLI task runner that you *need to install*. Run any task
 with `just TASK`:
+
+The recipes are split across three files, which changes nothing about how you run them — an imported recipe keeps its
+group and lists under it, so `just --list` shows one flat set:
+
+| file | holds |
+|---|---|
+| `justfile` | the build, test, lint, `format` and housekeeping recipes — what you edit as the project grows |
+| `.just/toolchain.just` | the pinned `ols` / `odinfmt` machinery: `fetch-ols`, `bump-ols`, `ensure-odinfmt`, and the pin itself |
+| `.just/editor.just` | one-off editor setup: `install-sublime`, `sublime-build-init`, `sublime-lsp-init`, `ols-config` |
+
+The two `.just/` files are *mandatory* imports (`import`, not the `import?` that brings in an optional feature), so
+deleting one is an error rather than recipes quietly disappearing. All three share one namespace: a fragment sees
+`linker` and `target_path` from the justfile, and vice versa.
 
 <!-- >>> exe-only -->
 **Build & run** — `odin run` always recompiles the whole package (Odin has no build cache / incremental compilation).
@@ -304,7 +330,7 @@ and the examples are what prove the package is usable from outside it:
 * `just check` — type check the library. The fast "does it still compile" pass, without the vet and style flags
   `just lint` carries
 * `just example NAME` — build and run `examples/NAME.odin`
-* `just examples` — type check every example, so an API change cannot quietly invalidate the documentation
+* `just examples-check` — type check every example, so an API change cannot quietly invalidate the documentation
 * `just doc` — print the package documentation (`odin doc .`)
 <!-- <<< lib-only -->
 
@@ -401,7 +427,7 @@ release, has **no `--version` flag**, and two releases format the same source di
 you nothing about which one it is, and the failure mode is a developer running `just format`, getting a clean local
 tree, and failing a CI diff on files they never touched.
 
-The justfile therefore pins the ols release and formats with that copy:
+`.just/toolchain.just` therefore pins the ols release and formats with that copy:
 
 ```
 ols_tag    := "dev-2026-06"
@@ -440,7 +466,7 @@ runs the two recipes below for you, warning rather than failing if either cannot
 for keeping an existing project current.
 
 **Bumping the pin.** `just bump-ols` reads the latest release from GitHub's API and rewrites `ols_tag` and all
-five digests in the justfile for you — copying six values by hand is where a wrong pin comes from:
+five digests in `.just/toolchain.just` for you — copying six values by hand is where a wrong pin comes from:
 
 ```
 just bump-ols                 # rewrite the pin to the latest release
@@ -450,7 +476,7 @@ just fetch-ols --force        # install it; the digests just written are checked
 just format                   # review this diff - see below
 ```
 
-It edits the justfile and stops: no fetch, no format, no commit. `/releases/latest` skips prereleases, which is
+It edits `.just/toolchain.just` and stops: no fetch, no format, no commit. `/releases/latest` skips prereleases, which is
 what keeps the continuously re-cut `nightly` tag out of it — a moving tag cannot be hash-pinned. Digests come from
 the API's per-asset `digest` field; an older release without one is downloaded and hashed instead.
 
@@ -486,7 +512,7 @@ than it saves.
 
 ## Some recipes need uv
 
-`fetch-ols`, `bump-ols`, `ols-config`, `install-sublime`, `sublime-build-init`, `sublime-lsp-init` — and `examples` in a
+`fetch-ols`, `bump-ols`, `ols-config`, `install-sublime`, `sublime-build-init`, `sublime-lsp-init` — and `examples-check` in a
 library — are `[script]` recipes: their
 bodies are Python, run through [uv](https://docs.astral.sh/uv/) rather than a bare `python`/`python3` on `PATH`. The
 justfile pins this in one place:
@@ -506,8 +532,8 @@ to treat as a project root.
 Python, so a project that never runs one of the editor-setup recipes above never needs it installed.
 <!-- <<< exe-only -->
 <!-- >>> lib-only -->
-**In a library uv is needed for `just examples`**, and otherwise optional: `check`/`test*`/`lint`/`format`/`example`
-and `doc` touch no Python, but `examples` — the recipe that stops an API change from quietly invalidating the
+**In a library uv is needed for `just examples-check`**, and otherwise optional: `check`/`test*`/`lint`/`format`/`example`
+and `doc` touch no Python, but `examples-check` — the recipe that stops an API change from quietly invalidating the
 documentation — is one of these `[script]` recipes, so it is not only an editor-setup concern here.
 <!-- <<< lib-only -->
 Install from
@@ -726,7 +752,7 @@ because a `tabTrigger` only helps somebody who already knows to type it:
 | --- | --- | --- |
 | `main` | `source.odin` | the `main.odin` program skeleton — logging, tracking allocator, backtraces. Useful for a quick script file without a `justfile` |
 | `odin` | `source.just` | a justfile for an Odin **program** — the build tiers, `test`, `lint` |
-| `odinlib` | `source.just` | a justfile for an Odin **library** — `check`, `example`, `examples`, `doc`, `test` |
+| `odinlib` | `source.just` | a justfile for an Odin **library** — `check`, `example`, `examples-check`, `doc`, `test` |
 
 The two justfile snippets exist separately because a justfile is one project kind's justfile; unlike the build systems
 below, one copy cannot serve both.
@@ -838,21 +864,28 @@ These last two sections maintain this skeleton repository itself, not a project 
 snippet-generator recipes from the copied justfile (they only maintain this skeleton) — once detached, treat the copied
 snippets as a one-off starting point rather than something kept in sync.
 
-All three snippets are **generated** from `main.odin` and the `justfile` (their single source of truth) so they cannot
+All three snippets are **generated** from `main.odin` and the justfile (their single source of truth) so they cannot
 silently drift out of date:
 
 * `just snippets` regenerates `.sublime/Odin-skeleton.sublime-snippet`, `.sublime/Just-Odin.sublime-snippet` and
-  `.sublime/Just-Odin-lib.sublime-snippet`. Run it after editing `main.odin` or the `justfile`.
+  `.sublime/Just-Odin-lib.sublime-snippet`. Run it after editing `main.odin`, the `justfile` or either `.just/`
+  fragment.
 * `just snippets-check` exits non-zero (with a diff) if the committed snippets no longer match what generation would
   produce — wire it into a pre-commit hook or CI to catch drift.
 
+A snippet is pasted into **one** buffer, so the two Justfile snippets are the `justfile` and both `.just/` fragments
+concatenated — a snippet holding only the root file would produce a justfile importing two files the buffer does not
+have, and `import` (unlike `import?`) is not optional. The `import` lines themselves are dropped, which is what makes
+the concatenation a valid single file rather than a duplicated one.
+
 The generator only adds the snippet XML wrapper plus a few `${n:default}` interactive fields (package name, the
 `main_program` body, the `#config` defaults, the executable names). Recipes fenced by `# >>> name` / `# <<< name`
-markers in the `justfile` are stripped from the Justfile snippets. Four marker names are used:
+markers are stripped from the Justfile snippets. Four marker names are used:
 
 * `skeleton-only` — e.g. `new`, `snippets`. Meaningless outside this repo, so `just new` drops them too
-* `snippet-exclude` — `sublime-build-init` and `sublime-lsp-init`. Kept by `just new`, but left out of the snippets because they contain
-  literal `$` that Sublime would otherwise parse as snippet fields
+* `snippet-exclude` — `sublime-build-init` and `sublime-lsp-init`, the `.just/` `import` lines, and the fragments'
+  header notes. Kept by `just new`, but left out of the snippets: the first two contain literal `$` that Sublime would
+  otherwise parse as snippet fields, and the rest describes a file layout a single-buffer snippet does not have
 * `exe-only` / `lib-only` — the recipes belonging to one project kind. Each justfile snippet keeps its own kind's block
   and drops the other's, which is the same split `odin-skel new --lib` applies
 

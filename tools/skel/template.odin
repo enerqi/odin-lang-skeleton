@@ -94,6 +94,17 @@ LIB_TEMPLATE_DIR :: "mylib"
 LIB_TEMPLATE_PACKAGE :: "mylib"
 
 /*
+The justfile's imported recipe fragments. They are marker-stripped exactly like the justfile is (see
+the `switch` in `new`), and the toolchain one is where the `ols_tag` pin lives, which `new` reads back
+to name the version it installed.
+
+Named here rather than spelled out at each use so a fragment renamed in the repository breaks the
+build in one place. `just embed` picks the files up from `git ls-files` and needs no such list.
+*/
+FRAGMENT_DIR :: ".just/"
+TOOLCHAIN_FRAGMENT :: FRAGMENT_DIR + "toolchain.just"
+
+/*
 Marker blocks stripped when scaffolding, by project kind. `skeleton-only` goes in both directions; the
 kind markers keep one shape's recipes and prose out of the other's files.
 

@@ -19,12 +19,14 @@ used for the `.sublime-project` file.
 directory is the package itself. `pkg` names that package and is only consulted for `.Lib`; when
 empty it is derived from the project name, which frequently is not a legal package clause on its own.
 
-`offline` skips the ols pin check and install at the end - see `pin_and_install_ols`. Everything up to
-that point is local, so an offline scaffold is a complete one.
+`offline` skips the ols pin check, install and format at the end - see `pin_and_install_ols`. Everything
+up to that point is local, so an offline scaffold is a complete one. `bump` = false keeps the pin the
+templates carry but still installs it, for a pin chosen deliberately.
 
 Not everything is copied verbatim:
 
-  - the justfile, README.md and .gitattributes have their marker blocks stripped, per kind
+  - the justfile, its `.just/` recipe fragments, README.md and .gitattributes have their marker
+    blocks stripped, per kind
   - README.md is additionally demoted one heading level and given a `# <name>` title of its own
   - `*.sublime-project` is renamed to `<name>.sublime-project`
   - LICENSE is replaced with a fresh Zlib licence
@@ -40,6 +42,7 @@ new :: proc(
 	kind := Project_Kind.Exe,
 	pkg: string = "",
 	offline := false,
+	bump := true,
 ) -> int {
 	if os.is_file(dest) {
 		fmt.eprintfln("odin-skel: refusing - %q is a file", dest)
@@ -102,7 +105,19 @@ new :: proc(
 		// odin-skel itself, and .gitattributes' linguist rules for files that either do not exist in
 		// a scaffolded project or are not generated once they land there. The justfile and README
 		// additionally carry `exe-only` / `lib-only` blocks, which is why the drop set is per kind.
-		case tmpl.path == "justfile", tmpl.path == "README.md", tmpl.path == ".gitattributes":
+		//
+		// `.just/` holds the justfile's imported recipe fragments, which are part of the same file for
+		// this purpose - .just/editor.just carries a `snippet-exclude` block whose marker lines have to
+		// go the same way the justfile's do. A prefix test rather than another name in the list, so a
+		// fragment added later is covered without editing this line. Note bench/bench.just is NOT here:
+		// feature files arrive via `add`, which copies them verbatim, so they carry no markers.
+		case tmpl.path ==
+		     "justfile",
+		     tmpl.path ==
+		     "README.md",
+		     tmpl.path ==
+		     ".gitattributes",
+		     strings.has_prefix(tmpl.path, FRAGMENT_DIR):
 			out_rel, content = tmpl.path, strip_marked_blocks(tmpl.data, drop_names(kind))
 			owned_content = true
 
@@ -207,52 +222,78 @@ new :: proc(
 	}
 
 	if !offline {
-		pin_and_install_ols(dest)
+		pin_and_install_ols(dest, bump)
 	}
 	return 0
 }
 
 /*
-Bring the new project's ols pin up to date, then install it. Warns and continues on any failure.
+Bring the new project's ols pin up to date, install it, and - only if the pin actually moved - format
+with it. Warns and continues on any failure. `bump` = false keeps the shipped pin and does the install
+alone.
 
-The pin the templates carry is as old as the last odin-skel release, so without this a new project
+The pin the templates carry is as old as the last odin-skel release, so without the bump a new project
 starts several ols releases behind and takes a reformatting diff across files nobody edited the first
 time anybody bumps it. odinfmt ships inside an ols release and cannot report its own version, which is
-why the pin exists at all - see the justfile's `ols_tag`.
+why the pin exists at all - see `ols_tag` in .just/toolchain.just.
 
-Neither step is reimplemented here. `just bump-ols` and `just fetch-ols` are recipes in the justfile
-that was just written, so the tool and the scaffolded project cannot disagree about how a pin is chosen
-or verified - the same reason `just new` is a thin wrapper around this binary rather than a second copy
-of the logic (tools/DESIGN.md, Decision 2). The cost is that both steps need `just` and `uv`, so a
-missing one is reported as that rather than as a failure.
+The format is what makes the bump honest. The files were just written from templates formatted by
+whichever odinfmt the *skeleton* pinned, and the bump may have pointed the project at a newer one - so
+without it the first `just format` reformats files the user never wrote. That is the same diff the bump
+exists to prevent, moved to a worse moment: here the project has no history, so the churn is invisible;
+later it is noise in a real review. Only when the pin moved, because otherwise the templates already
+match the pin and running odinfmt would be a no-op with a download attached.
+
+Whether it moved is decided by reading the pin back, not by parsing `bump-ols` output: the file is the
+only authority on what changed, and the recipe prints several different shapes of message.
+
+No step is reimplemented here. `just bump-ols`, `just fetch-ols` and `just format` are recipes in the
+justfile that was just written, so the tool and the scaffolded project cannot disagree about how a pin
+is chosen, verified or applied - the same reason `just new` is a thin wrapper around this binary rather
+than a second copy of the logic (tools/DESIGN.md, Decision 2). The cost is that they need `just` and
+`uv`, so a missing one is reported as that rather than as a failure.
 
 Every failure here is a warning, never an exit code: the files are already written and correct, and what
 is at stake is only whether the pin is current and the tools are on disk. A scaffold that reported
 failure because GitHub was unreachable would be lying about what happened.
 */
-pin_and_install_ols :: proc(dest: string) {
-	shipped, shipped_ok := justfile_ols_tag(dest)
+pin_and_install_ols :: proc(dest: string, bump := true) {
+	shipped, shipped_ok := toolchain_ols_tag(dest)
 	defer if shipped_ok {
 		delete(shipped)
 	}
 
+	pin_moved := false
 	fmt.println()
-	fmt.println("checking for the latest ols release (`--offline` skips this and the install below)")
-	bump := probe({"just", "bump-ols"}, dest)
-	defer delete(bump.output)
-	if bump.output != "" {
-		fmt.println(bump.output)
-	}
-	if !bump.found {
-		fmt.eprintln("odin-skel: warning: `just` is not on PATH, so the ols pin was not checked")
-	} else if bump.exit_code != 0 {
-		fmt.eprintfln("odin-skel: warning: could not check for the latest ols release (exit %d)", bump.exit_code)
-	}
-	if !bump.found || bump.exit_code != 0 {
+	if !bump {
 		if shipped_ok {
-			fmt.eprintfln("  the project keeps the pin it shipped with, ols_tag = %q", shipped)
+			fmt.printfln("keeping the pin the templates carry, ols_tag = %q (--no-bump)", shipped)
+		} else {
+			fmt.println("keeping the pin the templates carry (--no-bump)")
 		}
-		fmt.eprintln("  run `just bump-ols` in the project to adopt the latest release")
+	} else {
+		fmt.println("checking for the latest ols release (`--offline` skips this and the install below)")
+		bumped := probe({"just", "bump-ols"}, dest)
+		defer delete(bumped.output)
+		if bumped.output != "" {
+			fmt.println(bumped.output)
+		}
+		if !bumped.found {
+			fmt.eprintln("odin-skel: warning: `just` is not on PATH, so the ols pin was not checked")
+		} else if bumped.exit_code != 0 {
+			fmt.eprintfln("odin-skel: warning: could not check for the latest ols release (exit %d)", bumped.exit_code)
+		}
+		if !bumped.found || bumped.exit_code != 0 {
+			if shipped_ok {
+				fmt.eprintfln("  the project keeps the pin it shipped with, ols_tag = %q", shipped)
+			}
+			fmt.eprintln("  run `just bump-ols` in the project to adopt the latest release")
+		} else if shipped_ok {
+			if current, current_ok := toolchain_ols_tag(dest); current_ok {
+				pin_moved = current != shipped
+				delete(current)
+			}
+		}
 	}
 
 	fmt.println("installing the pinned ols + odinfmt")
@@ -270,14 +311,41 @@ pin_and_install_ols :: proc(dest: string) {
 		// `format` depends on `ensure-odinfmt`, so the download is retried at the point it is needed.
 		fmt.eprintln("  the first `just format` installs them anyway, or run `just fetch-ols` when ready")
 	}
+
+	if !pin_moved {
+		return
+	}
+	if !fetch.found || fetch.exit_code != 0 {
+		// Formatting with an odinfmt that is not there would only repeat the failure above.
+		fmt.eprintln("odin-skel: warning: the pin moved but the tools are missing, so the files were not reformatted")
+		fmt.eprintln("  run `just format` once `just fetch-ols` has succeeded, and commit that as the scaffold")
+		return
+	}
+
+	fmt.println("reformatting with the newly pinned odinfmt")
+	formatted := probe({"just", "format"}, dest)
+	defer delete(formatted.output)
+	if formatted.output != "" {
+		fmt.println(formatted.output)
+	}
+	if !formatted.found {
+		fmt.eprintln("odin-skel: warning: `just` is not on PATH, so the files were not reformatted")
+	} else if formatted.exit_code != 0 {
+		fmt.eprintfln("odin-skel: warning: could not reformat with the new pin (exit %d)", formatted.exit_code)
+	}
+	if !formatted.found || formatted.exit_code != 0 {
+		fmt.eprintln(
+			"  run `just format` before committing, or the first one you run will churn files you did not write",
+		)
+	}
 }
 
-// The `ols_tag` the written justfile carries, for a warning that can name it. Anchored to the start of
-// a line so the tag mentioned in the file's own comments cannot be read instead. Unreadable or absent is
-// not worth a message of its own - the caller just leaves the tag out of its warning.
+// The `ols_tag` the written .just/toolchain.just carries, for a warning that can name it. Anchored to
+// the start of a line so the tag mentioned in the file's own comments cannot be read instead. Unreadable
+// or absent is not worth a message of its own - the caller just leaves the tag out of its warning.
 @(require_results)
-justfile_ols_tag :: proc(dest: string, allocator := context.allocator) -> (tag: string, ok: bool) {
-	full := join_path(dest, "justfile")
+toolchain_ols_tag :: proc(dest: string, allocator := context.allocator) -> (tag: string, ok: bool) {
+	full := join_path(dest, TOOLCHAIN_FRAGMENT)
 	defer delete(full)
 
 	data, err := os.read_entire_file(full, context.temp_allocator)

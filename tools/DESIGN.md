@@ -154,6 +154,34 @@ of use.
 **Cost.** `new` now needs `just` and `uv` for its last step, where before it needed nothing. Both are
 already required to *use* the project, and a missing one is reported as that rather than as a failure.
 
+### Amendment — the bump has to be finished, and has to be refusable
+
+Two holes in the above, found by asking whether the bump is a good idea at all.
+
+**It relocated the diff rather than removing it.** `new` bumped the pin and installed the tools but did
+not format, so the delivered files were formatted by whichever odinfmt the *skeleton* pinned while the
+project now pinned a newer one. The first `just format` therefore churned files the user never wrote —
+the exact diff the bump exists to prevent, moved from "whenever somebody bumps" to "the user's first
+format", by which point there may be history to review it against. `pin_and_install_ols` now runs
+`just format` as well, but only when the pin actually moved, decided by reading the pin back rather than
+by parsing the recipe's output. Nothing to do when it did not move: the templates already match.
+
+**"Latest" is not "newer", so the bump has to be refusable.** `bump-ols` says so itself — these tags
+have no ordering it can rely on, and the release marked latest can be older than a hand-picked pin. The
+only way to keep a deliberate pin was `--offline`, which also skipped the install. `--no-bump` separates
+the two.
+
+**Accepted cost, stated plainly.** This is in tension with Decision 1's atomic versioning: two runs of
+the same binary on different days do not produce the same project. Decision 1's claim is about the
+*templates* being identified exactly by the binary version, and that still holds — the pin is the one
+value deliberately taken from the outside world, because its whole purpose is to name something that
+lives there. `--no-bump` and `--offline` are how a caller who wants the stronger property gets it.
+
+**And it needed covering.** Every scaffold in CI passed `--offline`, so this entire path — the only one
+that touches the network, and the one every real first-time user hits — was never executed by CI. A
+Linux-only non-offline scaffold now runs it, asserting the invariant rather than the outcome: the pin
+file is still intact, the project still builds, and `just format` on the fresh scaffold changes nothing.
+
 
 
 ## Decision 3 — repository layout (a): the repo root stays the template
@@ -438,7 +466,7 @@ whole `linker` block, and `test`/`test1`, which work against the root package as
 **Added:**
 
 * `example <name>` — `odin run examples/{{name}}.odin -file`, output to `target/debug/example-<name>.exe`
-* `examples` — check every file in `examples/`, so the library cannot drift from its own documentation
+* `examples-check` — check every file in `examples/`, so the library cannot drift from its own documentation
 * `doc` — per-package `odin doc`
 * `check` — the inner-loop recipe, replacing `just run` as the thing you hit constantly
 
@@ -540,6 +568,23 @@ a `.sublime-build` file would be inert rather than wrong-looking. A test asserts
   drift problem, which is Decision 2's argument applied to text files.
 * Odin sources and examples — separate files carrying a `kind`. `main.odin` and a library package share
   nothing, and markers would make both unreadable.
+
+### Amendment — the justfile is three files
+
+The justfile reached 1376 lines, of which ~450 were the pinned-ols machinery and the editor setup:
+recipes run once per machine, in the file read every day to find `just run`. They moved to
+`.just/toolchain.just` and `.just/editor.just`, imported by the justfile.
+
+This is `import?` from Decision 4f used for a different purpose, so the differences are deliberate. The
+imports are **mandatory** — both files always ship, and `import?` would turn a deleted one into recipes
+silently missing from `just --list` rather than an error. The fragments join the marker-stripped set in
+`new`, matched on the `.just/` prefix rather than by name, so a third fragment needs no code change. And
+`_snippets` concatenates all three files before stripping: a snippet is one buffer, and a snippet of the
+root file alone would emit a justfile whose mandatory imports resolve to nothing. The `import` lines are
+in a `snippet-exclude` block, which is what makes the concatenation a single valid file.
+
+What did not change: `_embed` (its input is `git ls-files`, so the fragments arrived by being tracked),
+every recipe name, and every `[group]` — `just --list` output is identical, which is the regression test.
 
 ### What it costs
 

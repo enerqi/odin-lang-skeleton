@@ -39,7 +39,13 @@ Commands:
                       not a legal package clause. Ignored without --lib.
       --offline       Skip the ols release check and tool install that normally finish a scaffold.
                       Without it, new runs the project's own bump-ols and fetch-ols recipes so it
-                      starts on the current odinfmt; either failing is a warning, not an error.
+                      starts on the current odinfmt - and format, when the pin actually moved, so
+                      the files delivered match the pin they were delivered with. Any of the three
+                      failing is a warning, not an error.
+      --no-bump       Keep the ols pin the templates carry, but still install it. For a deliberately
+                      chosen pin: the release GitHub marks "latest" is not always the newest, so a
+                      bump can move a hand-picked pin backwards. --offline also keeps the pin, but
+                      skips the install too.
       --linker=<v>    Pin the generated justfile's linker for every platform, where <v> is one of
                       default, lld, radlink or mold. Omit it to keep the skeleton's per-OS default:
                       radlink on Windows (it ships with the Odin toolchain), "default" elsewhere.
@@ -136,6 +142,7 @@ run :: proc() -> int {
 		pkg_given := false
 		kind := Project_Kind.Exe
 		offline := false
+		bump := true
 		for i := 1; i < len(args); i += 1 {
 			arg := args[i]
 
@@ -145,6 +152,10 @@ run :: proc() -> int {
 			}
 			if arg == "--offline" {
 				offline = true
+				continue
+			}
+			if arg == "--no-bump" {
+				bump = false
 				continue
 			}
 
@@ -193,7 +204,7 @@ run :: proc() -> int {
 		if len(positional) == 0 {
 			fmt.eprintln("odin-skel: `new` needs a destination directory")
 			fmt.eprintln(
-				"usage: odin-skel new <dest> [name] [--lib] [--pkg=<name>] [--linker=<default|lld|radlink|mold>] [--offline]",
+				"usage: odin-skel new <dest> [name] [--lib] [--pkg=<name>] [--linker=<default|lld|radlink|mold>] [--offline] [--no-bump]",
 			)
 			return 2
 		}
@@ -204,7 +215,7 @@ run :: proc() -> int {
 			fmt.eprintln("odin-skel: --pkg only applies to --lib; ignoring it")
 		}
 		name := len(positional) >= 2 ? positional[1] : ""
-		return new(positional[0], name, linker, kind, pkg, offline)
+		return new(positional[0], name, linker, kind, pkg, offline, bump)
 	case:
 		fmt.eprintfln("odin-skel: unknown command %q", args[0])
 		fmt.eprint(USAGE)

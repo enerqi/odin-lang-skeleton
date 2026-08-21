@@ -11,7 +11,11 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [0.11.1] - 2026-08-21
 
-- readme refinement
+- readme refinement: the out-of-tree collection layout for libraries (`import toml "toml:."`), `just format`'s
+  transitive uv requirement, and `odin-skel add bench` — previously named only inside `skeleton-only` blocks, so a
+  scaffolded project documented the `just bench*` recipes without saying where `bench/` comes from
+- the README strip test now runs both project kinds, and allows `odin-skel add` / `odin-skel sync` in a scaffold
+  rather than banning the string `odin-skel` outright
 
 
 ## [0.11.0] - 2026-08-21

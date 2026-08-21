@@ -307,8 +307,8 @@ checkout named `odin-toml` needs naming here for the same reason the examples in
 ```
 
 **The package name must be a valid Odin identifier**, which a repository name often is not: `odin-toml` is a fine
-directory name and an illegal `package` clause. `odin-skel new --lib` derives one by turning `-`, `.` and spaces into
-underscores, or takes `--pkg=NAME` if you would rather choose.
+directory name and an illegal `package` clause. Scaffolding a library derives one by turning `-`, `.` and spaces
+into underscores, and `--pkg=NAME` overrides it.
 
 **Examples are single-file `main` packages**, built with `-file` so several can share `examples/` without their
 `main` procedures colliding. In `-file` mode a relative import resolves against the file's own directory, so an

@@ -805,27 +805,43 @@ test_strip_on_the_real_readme :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, source != "", "README.md missing from TEMPLATES - run `just embed`")
 
-	got := strip_marked_blocks(source, drop_names(.Exe))
-	defer delete(got)
+	// Both kinds, because a leak can hide in a `lib-only` block that the executable strip removes
+	// anyway - which is how `odin-skel new --lib` sat in the library layout section uncaught.
+	exe := strip_marked_blocks(source, drop_names(.Exe))
+	defer delete(exe)
+	lib := strip_marked_blocks(source, drop_names(.Lib))
+	defer delete(lib)
 
-	// "just new", "just snippets" and "odin-skel" name recipes and a binary that a scaffolded
-	// project does not have, so any mention of them is a leak wherever it appears in the file.
+	// "just new", "just snippets" and the scaffolding subcommands name recipes and workflows a
+	// scaffolded project cannot run, so any mention of them is a leak wherever it appears. Not a
+	// blanket ban on the string "odin-skel": `add` and `sync` are how a project reaches the optional
+	// features and the file resync, so the scaffolded README has to be able to name them.
 	for gone in ([]string {
 			"Installing odin-skel",
 			"Cutting a release",
 			"just new",
 			"just embed",
 			"just snippets",
-			"odin-skel",
+			"odin-skel new",
+			"odin-skel help",
+			"odin-skel doctor",
 			"skeleton-only",
 		}) {
-		testing.expectf(t, !strings.contains(got, gone), "skeleton-only README content %q leaked", gone)
+		testing.expectf(t, !strings.contains(exe, gone), "skeleton-only README content %q leaked (exe)", gone)
+		testing.expectf(t, !strings.contains(lib, gone), "skeleton-only README content %q leaked (lib)", gone)
 	}
 	// "Choosing a linker" documents a justfile variable the scaffolded project still has, so it must
-	// stay outside the markers however the section is nested or moved.
-	for kept in ([]string{"just run", "just lint", "Language Server Configuration", "Choosing a linker"}) {
-		testing.expectf(t, strings.contains(got, kept), "README content %q was stripped", kept)
+	// stay outside the markers however the section is nested or moved. `odin-skel add bench` is the
+	// only way a project gets the benchmark harness, and the section documenting it used to sit inside
+	// the markers - so a scaffold described `just bench*` without ever saying where the directory
+	// comes from.
+	for kept in ([]string{"just lint", "Language Server Configuration", "Choosing a linker", "odin-skel add bench"}) {
+		testing.expectf(t, strings.contains(exe, kept), "README content %q was stripped (exe)", kept)
+		testing.expectf(t, strings.contains(lib, kept), "README content %q was stripped (lib)", kept)
 	}
+	// One per kind: the build ladder is the executable's, `check`/`doc` the library's.
+	testing.expect(t, strings.contains(exe, "just run"), "README content \"just run\" was stripped (exe)")
+	testing.expect(t, strings.contains(lib, "just doc"), "README content \"just doc\" was stripped (lib)")
 }
 
 // Every feature declared in FEATURES must actually have files carrying its tag, and every tagged file

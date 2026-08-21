@@ -270,8 +270,10 @@ will happily sync a project backwards.
 ## Library layout
 
 A library is laid out differently from the executable skeleton: there is no `main`, nothing lands in `target/`, and
-**the repository root is the package.** That is the layout the surrounding Odin ecosystem uses — a consumer clones or copies the library
-directory into their own tree, frequently renaming it on the way, and imports it by path:
+**the repository root is the package.** That is the layout the surrounding Odin ecosystem uses. A consumer either
+vendors the library into their own tree, or keeps the checkout outside the project and points a collection at it.
+
+Vendored — they clone or copy the directory in, frequently renaming it on the way, and import it by path:
 
 ```
 git clone <the library repo> libs/toml     # the directory name they pick becomes the import path
@@ -280,6 +282,20 @@ git clone <the library repo> libs/toml     # the directory name they pick become
 ```odin
 import "libs/toml"                  # or through a collection: -collection:libs=libs, then import "libs:toml"
 ```
+
+Out of tree — the collection points *at the library root itself*, and the root package is imported as `.`:
+
+```
+-collection:toml=../checkouts/odin-toml
+```
+
+```odin
+import toml "toml:."                // "toml:sub" for a subpackage
+```
+
+That keeps the checkout shared between projects and updatable with a `git pull`, with nothing copied into the
+consumer's tree. Note the explicit `toml` name: the import name is still derived from the resolved directory, so a
+checkout named `odin-toml` needs naming here for the same reason the examples in this repository do (below).
 
 ```
 .
@@ -392,8 +408,8 @@ and the examples are what prove the package is usable from outside it:
 * `just doc` — print the package documentation (`odin doc .`)
 <!-- <<< lib-only -->
 
-**Benchmarks** — present only once `bench/` is, which it is not by default. See
-[Benchmarking](#benchmarking):
+**Benchmarks** — present only once `bench/` is, which it is not by default: it is an opt-in feature, added with
+`odin-skel add bench`. See [Benchmarking](#benchmarking):
 
 * `just bench [NAME] [--samples=N …]` — build and run the benchmarks; `NAME` filters by substring
 * `just bench_build` / `just rerun_bench` — build without running / run without rebuilding
@@ -574,7 +590,7 @@ than it saves.
 ## Some recipes need uv
 
 `fetch-ols`, `bump-ols`, `ols-config`, `install-sublime`, `sublime-build-init`, `sublime-lsp-init` — and `examples-check` in a
-library — are `[script]` recipes: their
+library, and `bench_count` / `bench_count_check` once `bench/` is installed — are `[script]` recipes: their
 bodies are Python, run through [uv](https://docs.astral.sh/uv/) rather than a bare `python`/`python3` on `PATH`. The
 justfile pins this in one place:
 
@@ -588,12 +604,20 @@ python` downloads the interpreter it needs (uv-managed, not the system one) so t
 `--no-project` stops `uv run` from walking up the directory tree looking for an unrelated `pyproject.toml`/`uv.toml`
 to treat as a project root.
 
+**`just format` reaches uv indirectly.** It depends on `ensure-odinfmt`, which runs `fetch-ols` — a `[script]`
+recipe — when the pinned `odinfmt` is not installed yet. So the *first* `format` on a fresh machine needs uv even
+though nothing in the list above was run by hand; every later one does not, the binary being there by then. Two ways
+out if you would rather not install uv at all: `ODINFMT=odinfmt just format` uses whatever `odinfmt` is on `PATH`
+and skips the download (see [Pinned tooling](#pinned-tooling)), or install the pinned pair by hand into
+`$ODIN_TOOLS/ols/<tag>/`.
+
 <!-- >>> exe-only -->
-**In an executable project uv is optional**, unlike `just`: none of the `run_*`/`test*`/`lint`/`format` tasks touch
-Python, so a project that never runs one of the editor-setup recipes above never needs it installed.
+**In an executable project uv is otherwise optional**, unlike `just`: none of the `run_*`/`test*`/`lint` tasks touch
+Python, so a project that never runs one of the recipes above — and has its `odinfmt` already installed — never
+needs it.
 <!-- <<< exe-only -->
 <!-- >>> lib-only -->
-**In a library uv is needed for `just examples-check`**, and otherwise optional: `check`/`test*`/`lint`/`format`/`example`
+**In a library uv is needed for `just examples-check`**, and otherwise optional: `check`/`test*`/`lint`/`example`
 and `doc` touch no Python, but `examples-check` — the recipe that stops an API change from quietly invalidating the
 documentation — is one of these `[script]` recipes, so it is not only an editor-setup concern here.
 <!-- <<< lib-only -->
@@ -756,9 +780,19 @@ This still measures whole processes. For per-procedure numbers, see [Benchmarkin
 
 ## Benchmarking
 
+**It is not there by default.** The harness is an opt-in feature, installed by `odin-skel` — the binary that
+scaffolds these projects — into either project kind, at any point in a project's life:
+
+```
+odin-skel add bench             # in the project directory
+odin-skel add bench ../my-game  # or somewhere else
+```
+
+`odin-skel` is a single binary, published on the
+[skeleton's releases page](https://github.com/enerqi/odin-lang-skeleton/releases/latest); the whole feature is
+compiled into it, so this needs no network access, and it does not need to stay installed afterwards.
 <!-- >>> skeleton-only -->
-Not part of a scaffolded project — add it with `odin-skel add bench`, to either project kind. See
-[Optional features](#optional-features).
+See [Optional features](#optional-features) for the rest of the `add` story.
 <!-- <<< skeleton-only -->
 
 `bench/` holds the harness, your benchmarks, and a `bench.just` carrying the recipes. The justfile's

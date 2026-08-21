@@ -37,7 +37,7 @@ and refreshed daily. It was rejected because the machinery it needs is large rel
 | offline / air-gapped / CI | works | needs a warm cache |
 | template update ships via | a binary release | `git pull` |
 
-The templates are roughly fifteen small text files. Embedding them deletes the cache directory, the
+The templates are two dozen small text files. Embedding them deletes the cache directory, the
 refresh timer, the partial-clone recovery path, and the "which template revision did this project come
 from" ambiguity outright, rather than solving each one.
 

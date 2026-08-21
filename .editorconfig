@@ -14,7 +14,6 @@ trim_trailing_whitespace = true
 max_line_length = 120
 
 [*.{yml,yaml}]
-# YAML forbids tabs for indentation - a re-tabbed workflow file fails GitHub's parser on its first
-# indented line, which is how the whole-file retab of ci.yml happened. Not a style preference.
+# YAML forbids tabs for indentation - not a style preference.
 indent_style = space
 indent_size = 2

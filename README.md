@@ -349,7 +349,7 @@ and the examples are what prove the package is usable from outside it:
 * `just lint` — type checking, vet warnings, strict style. No code generation
 * `just format` — runs the pinned `odinfmt -w .` over the whole tree, fetching it first if needed
 * `just fetch-ols` — install the pinned `ols` + `odinfmt` into `~/.odin-tools` (`--check` / `--force`)
-* `just bump-ols [TAG]` — rewrite the pin in the justfile to the latest (or named) ols release (`--check`)
+* `just bump-ols [TAG]` — rewrite the pin in `.just/toolchain.just` to the latest (or named) ols release (`--check`)
 * `just test` / `just test1 NAME` — run all tests / one named test
 <!-- >>> exe-only -->
 * `just sanitize [KIND]` — the same, but running the program rather than the tests
@@ -373,7 +373,7 @@ and the examples are what prove the package is usable from outside it:
 * `just clean` — wipe the `target` directory
 * `just mktarget_dirs` — create the `target` directory tree (auto-called by every task that builds)
 
-**Editor setup** (these three run on Python via [uv](https://docs.astral.sh/uv/) — see
+**Editor setup** (these four run on Python via [uv](https://docs.astral.sh/uv/) — see
 [Some recipes need uv](#some-recipes-need-uv)):
 
 * `just ols-config NAME=PATH...` — (re)generate the `ols.json` collection list (see [Language Server Configuration](#language-server-configuration))
@@ -476,7 +476,10 @@ just fetch-ols --force        # install it; the digests just written are checked
 just format                   # review this diff - see below
 ```
 
-It edits `.just/toolchain.just` and stops: no fetch, no format, no commit. `/releases/latest` skips prereleases, which is
+Run by hand it edits `.just/toolchain.just` and stops: no fetch, no format, no commit — reviewing that reformatting
+diff before it lands in a commit is the point. (Scaffolding a project is the one exception: a brand new tree has no
+diff worth reviewing, so a scaffold that moves the pin formats with it straight away.)
+`/releases/latest` skips prereleases, which is
 what keeps the continuously re-cut `nightly` tag out of it — a moving tag cannot be hash-pinned. Digests come from
 the API's per-asset `digest` field; an older release without one is downloaded and hashed instead.
 

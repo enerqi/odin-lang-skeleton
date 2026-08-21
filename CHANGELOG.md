@@ -9,14 +9,16 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-08-21
+
+- the README strip test now runs both project kinds, and allows `odin-skel add` / `odin-skel sync` in a scaffold
+  rather than banning the string `odin-skel` outright
+
 ## [0.11.1] - 2026-08-21
 
 - readme refinement: the out-of-tree collection layout for libraries (`import toml "toml:."`), `just format`'s
   transitive uv requirement, and `odin-skel add bench` — previously named only inside `skeleton-only` blocks, so a
   scaffolded project documented the `just bench*` recipes without saying where `bench/` comes from
-- the README strip test now runs both project kinds, and allows `odin-skel add` / `odin-skel sync` in a scaffold
-  rather than banning the string `odin-skel` outright
-
 
 ## [0.11.0] - 2026-08-21
 
@@ -914,7 +916,8 @@ First release of `odin-skel`, the binary that scaffolds a project without clonin
 - The Sublime build files no longer duplicate the `fastdebug` variants under a `debug` name, and
   their `debug` tier now uses `-o:none` to match what `-debug` actually implies.
 
-[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.11.0...HEAD
+[Unreleased]: https://github.com/enerqi/odin-lang-skeleton/compare/0.11.2...HEAD
+[0.11.2]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.11.2
 [0.11.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.11.0
 [0.10.1]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.10.1
 [0.10.0]: https://github.com/enerqi/odin-lang-skeleton/releases/tag/0.10.0

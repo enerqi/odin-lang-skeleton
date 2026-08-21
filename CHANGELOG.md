@@ -9,6 +9,11 @@ release deliberately — a release with no notes is the thing this file exists t
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-08-21
+
+- readme refinement
+
+
 ## [0.11.0] - 2026-08-21
 
 ### Added
